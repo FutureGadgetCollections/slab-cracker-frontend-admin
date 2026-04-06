@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="{{ .Site.LanguageCode }}">
+<head>
+  {{ partial "head.html" . }}
+</head>
+<body class="d-flex flex-column min-vh-100 bg-light"
+  data-backend-url="{{ .Site.Params.backendURL }}">
+
+  {{ partial "navbar.html" . }}
+
+  <main class="container py-4 flex-grow-1">
+    {{- block "main" . }}{{- end }}
+  </main>
+
+  {{ partial "footer.html" . }}
+  {{ partial "scripts.html" . }}
+  {{- block "page-scripts" . }}{{- end }}
+</body>
+</html>

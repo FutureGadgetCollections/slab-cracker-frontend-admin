@@ -1,0 +1,60 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: latest
+          extended: true
+
+      - name: Build
+        run: hugo --minify --baseURL "$GITHUB_PAGES_URL"
+        env:
+          GITHUB_PAGES_URL: ${{ vars.GITHUB_PAGES_URL }}
+          # Secrets (sensitive keys)
+          HUGO_PARAMS_FIREBASE_API_KEY: ${{ secrets.HUGO_PARAMS_FIREBASE_API_KEY }}
+          HUGO_PARAMS_FIREBASE_APP_ID: ${{ secrets.HUGO_PARAMS_FIREBASE_APP_ID }}
+          HUGO_PARAMS_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.HUGO_PARAMS_FIREBASE_MESSAGING_SENDER_ID }}
+          # Variables (non-sensitive config)
+          HUGO_PARAMS_FIREBASE_AUTH_DOMAIN: ${{ vars.HUGO_PARAMS_FIREBASE_AUTH_DOMAIN }}
+          HUGO_PARAMS_FIREBASE_PROJECT_ID: ${{ vars.HUGO_PARAMS_FIREBASE_PROJECT_ID }}
+          HUGO_PARAMS_FIREBASE_STORAGE_BUCKET: ${{ vars.HUGO_PARAMS_FIREBASE_STORAGE_BUCKET }}
+          HUGO_PARAMS_BACKENDURL: ${{ vars.HUGO_PARAMS_BACKENDURL }}
+          HUGO_PARAMS_ALLOWED_EMAILS: ${{ vars.HUGO_PARAMS_ALLOWED_EMAILS }}
+          HUGO_PARAMS_GCS_DATA_BUCKET: ${{ vars.HUGO_PARAMS_GCS_DATA_BUCKET }}
+          HUGO_PARAMS_GITHUB_DATA_REPO: ${{ vars.HUGO_PARAMS_GITHUB_DATA_REPO }}
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

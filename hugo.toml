@@ -1,0 +1,37 @@
+baseURL = "/"
+languageCode = "en-us"
+title = "Admin App"
+theme = "admin"
+
+[params]
+  description = "A lightweight admin interface"
+  backendURL = "http://localhost:8080"
+
+  # Firebase config — nested to match HUGO_PARAMS_FIREBASE_* env var mapping
+  [params.firebase.api]
+    key = ""
+  [params.firebase.auth]
+    domain = ""
+  [params.firebase.project]
+    id = ""
+  [params.firebase.storage]
+    bucket = ""
+  [params.firebase.messaging.sender]
+    id = ""
+  [params.firebase.app]
+    id = ""
+
+  # Allowed emails — maps to HUGO_PARAMS_ALLOWED_EMAILS -> allowed.emails
+  [params.allowed]
+    emails = ""
+
+  # Static data sources — maps to HUGO_PARAMS_GCS_DATA_BUCKET -> gcs.data.bucket etc.
+  [params.gcs.data]
+    bucket = ""
+  [params.github.data]
+    repo = ""
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true

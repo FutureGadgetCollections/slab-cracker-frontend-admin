@@ -1,0 +1,34 @@
+<nav class="navbar navbar-expand-md navbar-dark bg-dark sticky-top shadow-sm">
+  <div class="container">
+    <a class="navbar-brand fw-semibold" href="{{ "" | relURL }}">
+      <i class="bi bi-grid me-2"></i>{{ .Site.Title }}
+    </a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navMain">
+      <!-- Auth-required links (hidden until signed in) -->
+      <ul class="navbar-nav me-auto" id="nav-links" style="display:none!important">
+        <li class="nav-item">
+          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/items/" }} active{{ end }}"
+             href="{{ "items/" | relURL }}" title="Admin access required">
+            <i class="bi bi-list-ul me-1"></i>Items
+          </a>
+        </li>
+        <!-- Add more nav items here following the same pattern -->
+      </ul>
+
+      <div class="d-flex align-items-center gap-2 ms-auto" id="nav-auth">
+        <span class="text-secondary small" id="nav-user-email"></span>
+        <button class="btn btn-sm btn-outline-light d-none" id="btn-logout" onclick="authSignOut()">
+          Sign out
+        </button>
+        <a class="btn btn-sm btn-primary d-none" id="btn-login" href="{{ "" | relURL }}">
+          Sign in
+        </a>
+      </div>
+    </div>
+  </div>
+</nav>
