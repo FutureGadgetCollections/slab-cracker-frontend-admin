@@ -4,7 +4,7 @@
     <div class="card shadow-sm border-0">
       <div class="card-body p-4">
         <div class="text-center mb-4">
-          <i class="bi bi-grid fs-1 text-primary"></i>
+          <i class="bi bi-search fs-1 text-primary"></i>
           <h1 class="h4 mt-2 mb-1">{{ .Site.Title }}</h1>
           <p class="text-muted small">{{ .Site.Params.description }}</p>
         </div>
@@ -31,8 +31,11 @@
             <i class="bi bi-check-circle me-1"></i>Signed in as <strong id="home-user-email"></strong>
           </p>
           <div class="d-grid gap-2">
-            <a id="btn-go-items" href="{{ "items/" | relURL }}" class="btn btn-primary">
-              <i class="bi bi-list-ul me-1"></i>Go to Items
+            <a id="btn-go-submit" href="{{ "submit/" | relURL }}" class="btn btn-primary">
+              <i class="bi bi-upc-scan me-1"></i>Submit a PSA Cert
+            </a>
+            <a href="{{ "candidates/" | relURL }}" class="btn btn-outline-success">
+              <i class="bi bi-trophy me-1"></i>View Candidates
             </a>
             <p id="admin-hint" class="text-muted small mb-0 d-none">
               <i class="bi bi-lock me-1"></i>You need admin access to use this app.
@@ -43,26 +46,138 @@
     </div>
   </div>
 </div>
+
+<!-- Dashboard stats (shown after sign-in) -->
+<div id="dashboard-section" class="d-none mt-4">
+  <div class="row g-3">
+    <div class="col-md-3">
+      <div class="card shadow-sm border-0 text-center p-3">
+        <div class="text-muted small">Reference 10s</div>
+        <div class="fs-3 fw-bold text-primary" id="stat-references">--</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm border-0 text-center p-3">
+        <div class="text-muted small">Certs Scanned</div>
+        <div class="fs-3 fw-bold text-info" id="stat-scans">--</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm border-0 text-center p-3">
+        <div class="text-muted small">Analyses Run</div>
+        <div class="fs-3 fw-bold text-warning" id="stat-analyses">--</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm border-0 text-center p-3">
+        <div class="text-muted small">Top Candidates</div>
+        <div class="fs-3 fw-bold text-success" id="stat-candidates">--</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent analyses -->
+  <div class="card shadow-sm border-0 mt-3">
+    <div class="card-header bg-white border-0 fw-semibold">
+      <i class="bi bi-clock-history me-1"></i>Recent Analyses
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Cert #</th>
+              <th>Card</th>
+              <th>Grade</th>
+              <th>Similarity</th>
+              <th>Verdict</th>
+              <th class="text-end pe-3">Date</th>
+            </tr>
+          </thead>
+          <tbody id="recent-tbody">
+            <tr><td colspan="6" class="text-center text-muted py-4">No analyses yet. Submit a cert to get started.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
 {{ end }}
 
 {{ define "page-scripts" }}
 <script>
-  firebase.auth().onAuthStateChanged(user => {
+  firebase.auth().onAuthStateChanged(async user => {
     if (user) {
       document.getElementById('auth-section').classList.add('d-none');
       document.getElementById('signed-in-section').classList.remove('d-none');
       document.getElementById('home-user-email').textContent = user.email;
 
       if (!isEmailAllowed(user.email)) {
-        const btn = document.getElementById('btn-go-items');
-        btn.removeAttribute('href');
-        btn.classList.add('disabled');
+        document.getElementById('btn-go-submit').removeAttribute('href');
+        document.getElementById('btn-go-submit').classList.add('disabled');
         document.getElementById('admin-hint').classList.remove('d-none');
+      } else {
+        document.getElementById('dashboard-section').classList.remove('d-none');
+        loadDashboard();
       }
     } else {
       document.getElementById('auth-section').classList.remove('d-none');
       document.getElementById('signed-in-section').classList.add('d-none');
+      document.getElementById('dashboard-section').classList.add('d-none');
     }
   });
+
+  async function loadDashboard() {
+    try {
+      const stats = await loadJsonData('data/stats.json');
+      if (stats) {
+        document.getElementById('stat-references').textContent = stats.reference_count || 0;
+        document.getElementById('stat-scans').textContent = stats.scan_count || 0;
+        document.getElementById('stat-analyses').textContent = stats.analysis_count || 0;
+        document.getElementById('stat-candidates').textContent = stats.candidate_count || 0;
+      }
+    } catch (e) {
+      // Stats not yet available -- that's fine for a new project
+    }
+
+    try {
+      const recent = await loadJsonData('data/recent-analyses.json');
+      if (recent && recent.length > 0) {
+        const tbody = document.getElementById('recent-tbody');
+        tbody.innerHTML = recent.slice(0, 10).map(r => `
+          <tr>
+            <td class="ps-3 font-monospace">${escHtml(r.cert_number)}</td>
+            <td>${escHtml(r.card_name || '—')}</td>
+            <td><span class="badge bg-secondary">PSA ${r.grade}</span></td>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-grow-1" style="height:6px;">
+                  <div class="progress-bar ${r.similarity >= 0.8 ? 'bg-success' : r.similarity >= 0.6 ? 'bg-warning' : 'bg-danger'}"
+                       style="width:${(r.similarity * 100).toFixed(0)}%"></div>
+                </div>
+                <span class="small">${(r.similarity * 100).toFixed(1)}%</span>
+              </div>
+            </td>
+            <td>
+              ${r.similarity >= 0.8
+                ? '<span class="badge bg-success">Strong</span>'
+                : r.similarity >= 0.6
+                  ? '<span class="badge bg-warning text-dark">Maybe</span>'
+                  : '<span class="badge bg-danger">Skip</span>'}
+            </td>
+            <td class="text-end pe-3 text-muted small">${r.analyzed_at || '—'}</td>
+          </tr>
+        `).join('');
+      }
+    } catch (e) {
+      // No recent analyses yet
+    }
+  }
+
+  function escHtml(str) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(str));
+    return d.innerHTML;
+  }
 </script>
 {{ end }}

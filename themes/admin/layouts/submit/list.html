@@ -1,0 +1,576 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-upc-scan me-2"></i>{{ .Title }}</h2>
+</div>
+
+<!-- Auth guard -->
+<div id="auth-guard" class="alert alert-warning d-none">
+  <i class="bi bi-lock me-1"></i>You must be <a href="{{ "" | relURL }}">signed in</a> to submit certs.
+</div>
+
+<!-- Cert submission form -->
+<div id="submit-section" class="d-none">
+  <div class="row g-4">
+    <!-- Single cert submission with cataloging -->
+    <div class="col-lg-7">
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 fw-semibold">
+          <i class="bi bi-upc-scan me-1"></i>Catalog &amp; Fetch Cert
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            Enter the cert number and card details. The backend will fetch the official scans and file them
+            under the right card and grade in storage.
+          </p>
+
+          <!-- Cert number -->
+          <div class="mb-3">
+            <label class="form-label small fw-medium">PSA Cert Number</label>
+            <input type="text" class="form-control form-control-lg font-monospace" id="cert-number"
+                   placeholder="e.g. 12345678" maxlength="20" autocomplete="off">
+          </div>
+
+          <hr class="my-3">
+
+          <!-- Card identity (aligns with collection-market-tracker catalog.single_cards) -->
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">Game</label>
+              <select class="form-select" id="cert-game">
+                <option value="pokemon">Pokemon</option>
+                <option value="mtg">Magic: The Gathering</option>
+                <option value="yugioh">Yu-Gi-Oh!</option>
+                <option value="one-piece">One Piece</option>
+                <option value="sports-baseball">Sports - Baseball</option>
+                <option value="sports-basketball">Sports - Basketball</option>
+                <option value="sports-football">Sports - Football</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">Era</label>
+              <input type="text" class="form-control" id="cert-era" placeholder="e.g. Scarlet & Violet, Sword & Shield, Base">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">Set Code</label>
+              <input type="text" class="form-control" id="cert-set" placeholder="e.g. sv01, base-set, swsh01">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">Card Number <span class="text-muted fw-normal">(PK with game + set)</span></label>
+              <input type="text" class="form-control" id="cert-card-number" placeholder="e.g. 4, 006, 025/198">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">Card Name</label>
+              <input type="text" class="form-control" id="cert-card-name" placeholder="e.g. Charizard ex">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">Treatment</label>
+              <select class="form-select" id="cert-treatment">
+                <option value="base">Base / Regular</option>
+                <option value="holo">Holo</option>
+                <option value="reverse_holo">Reverse Holo</option>
+                <option value="full_art">Full Art</option>
+                <option value="borderless">Borderless</option>
+                <option value="showcase">Showcase</option>
+                <option value="extended_art">Extended Art</option>
+                <option value="alt_art">Alt Art</option>
+                <option value="gold">Gold / Secret</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">Rarity</label>
+              <input type="text" class="form-control" id="cert-rarity" placeholder="e.g. rare, ultra_rare, common">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-medium">TCGPlayer ID <span class="text-muted fw-normal">(optional, for price data)</span></label>
+              <input type="text" class="form-control font-monospace" id="cert-tcgplayer-id" placeholder="e.g. 652981">
+            </div>
+          </div>
+
+          <hr class="my-3">
+
+          <!-- Grading info -->
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-medium">Grading Company</label>
+              <select class="form-select" id="cert-grading-company">
+                <option value="PSA">PSA</option>
+                <option value="BGS">BGS (Beckett)</option>
+                <option value="CGC">CGC</option>
+                <option value="SGC">SGC</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-medium">Grade</label>
+              <select class="form-select" id="cert-grade">
+                <option value="10">10 (Gem Mint)</option>
+                <option value="9.5">9.5</option>
+                <option value="9" selected>9 (Mint)</option>
+                <option value="8.5">8.5</option>
+                <option value="8">8 (NM-MT)</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-medium">Role</label>
+              <select class="form-select" id="cert-role">
+                <option value="sample">Sample (for comparison)</option>
+                <option value="reference">Reference (baseline 10)</option>
+                <option value="candidate">Candidate (considering purchase)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- GCS path preview -->
+          <div class="mt-3 p-2 bg-light rounded small font-monospace" id="gcs-path-preview">
+            <span class="text-muted">GCS path:</span> <span id="gcs-path-text">--</span>
+          </div>
+
+          <div class="d-grid mt-3">
+            <button class="btn btn-primary" id="btn-submit-cert" onclick="submitCert()">
+              <i class="bi bi-send me-1"></i>Catalog Card
+            </button>
+          </div>
+          <div id="submit-error" class="alert alert-danger py-2 small d-none mt-2"></div>
+          <div id="submit-success" class="alert alert-success py-2 small d-none mt-2"></div>
+
+          <!-- Upload scans (shown after cataloging) -->
+          <div id="upload-section" class="d-none mt-3">
+            <hr>
+            <h6 class="fw-semibold"><i class="bi bi-cloud-upload me-1"></i>Upload Scans for Cert <span id="upload-cert-num" class="font-monospace"></span></h6>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label small fw-medium">Front Scan</label>
+                <input type="file" class="form-control" id="upload-front" accept="image/*">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-medium">Back Scan</label>
+                <input type="file" class="form-control" id="upload-back" accept="image/*">
+              </div>
+            </div>
+            <div class="d-grid mt-2">
+              <button class="btn btn-success" id="btn-upload" onclick="uploadScans()">
+                <i class="bi bi-cloud-upload me-1"></i>Upload to GCS
+              </button>
+            </div>
+            <div id="upload-error" class="alert alert-danger py-2 small d-none mt-2"></div>
+            <div id="upload-success" class="alert alert-success py-2 small d-none mt-2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Batch submission -->
+    <div class="col-lg-5">
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 fw-semibold">
+          <i class="bi bi-list-ol me-1"></i>Batch Submit
+        </div>
+        <div class="card-body">
+          <p class="text-muted small">
+            Paste multiple cert numbers (one per line) for the <strong>same card and grade</strong>.
+            Uses the game/set/card fields from the left form.
+          </p>
+          <textarea class="form-control font-monospace mb-3" id="batch-certs" rows="6"
+                    placeholder="12345678&#10;23456789&#10;34567890"></textarea>
+          <button class="btn btn-outline-primary w-100" id="btn-batch-submit" onclick="batchSubmit()">
+            <i class="bi bi-collection me-1"></i>Catalog &amp; Fetch All
+          </button>
+          <div id="batch-progress" class="mt-2 d-none">
+            <div class="progress" style="height:6px;">
+              <div class="progress-bar" id="batch-bar" style="width:0%"></div>
+            </div>
+            <span class="small text-muted" id="batch-status"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick stats for current card -->
+      <div class="card shadow-sm border-0 mt-3" id="card-stats-card" style="display:none">
+        <div class="card-header bg-white border-0 fw-semibold">
+          <i class="bi bi-bar-chart me-1"></i>Scans for This Card
+        </div>
+        <div class="card-body">
+          <div class="row g-2 text-center">
+            <div class="col-4">
+              <div class="text-muted small">Reference 10s</div>
+              <div class="fs-4 fw-bold text-success" id="card-stat-refs">0</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">9 Samples</div>
+              <div class="fs-4 fw-bold text-info" id="card-stat-samples">0</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">Candidates</div>
+              <div class="fs-4 fw-bold text-warning" id="card-stat-candidates">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submission history -->
+  <div class="card shadow-sm border-0 mt-4">
+    <div class="card-header bg-white border-0 d-flex align-items-center justify-content-between">
+      <span class="fw-semibold"><i class="bi bi-clock-history me-1"></i>Recent Submissions</span>
+      <div class="d-flex gap-2">
+        <select class="form-select form-select-sm" id="history-filter-game" style="width:auto" onchange="loadSubmissions()">
+          <option value="">All Games</option>
+          <option value="pokemon">Pokemon</option>
+          <option value="mtg">MTG</option>
+          <option value="yugioh">Yu-Gi-Oh!</option>
+          <option value="sports-baseball">Baseball</option>
+          <option value="sports-basketball">Basketball</option>
+          <option value="sports-football">Football</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadSubmissions()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+        </button>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      <div id="submissions-loading" class="text-center py-4">
+        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+      </div>
+      <div class="table-responsive d-none" id="submissions-table">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Cert #</th>
+              <th>Card</th>
+              <th>Set</th>
+              <th>Grade</th>
+              <th>Role</th>
+              <th>Scan Status</th>
+              <th>GCS Path</th>
+              <th class="text-end pe-3">Submitted</th>
+            </tr>
+          </thead>
+          <tbody id="submissions-tbody"></tbody>
+        </table>
+      </div>
+      <div id="submissions-empty" class="text-center text-muted py-4 d-none">
+        No submissions yet. Enter a cert number above to get started.
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  // Build and display the GCS path preview
+  // Path: {game}/{set_code}/{card_number}/{company}_{grade}/{cert}_front.jpg
+  // card_number slashes become dashes for filesystem safety
+  function updatePathPreview() {
+    const game = document.getElementById('cert-game').value;
+    const set = document.getElementById('cert-set').value.trim();
+    const cardNum = document.getElementById('cert-card-number').value.trim().replace(/\//g, '-');
+    const company = document.getElementById('cert-grading-company').value.toLowerCase();
+    const grade = document.getElementById('cert-grade').value;
+    const cert = document.getElementById('cert-number').value.trim();
+
+    if (game && set && cardNum && cert) {
+      document.getElementById('gcs-path-text').textContent =
+        `gs://slab-cracker-scans/${game}/${set}/${cardNum}/${company}_${grade}/${cert}_front.jpg`;
+    } else {
+      document.getElementById('gcs-path-text').textContent = 'Fill in all fields to see path';
+    }
+  }
+
+  // Attach preview updates to all inputs
+  ['cert-number','cert-game','cert-set','cert-card-name','cert-card-number','cert-grading-company','cert-grade','cert-era','cert-treatment','cert-rarity','cert-tcgplayer-id'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', updatePathPreview);
+      el.addEventListener('change', updatePathPreview);
+    }
+  });
+
+  // Collect form data as a request body
+  // Card identity: (game, set_code, card_number) -- matches market tracker PK
+  function getFormBody() {
+    const tcgId = document.getElementById('cert-tcgplayer-id').value.trim();
+    return {
+      cert_number:     document.getElementById('cert-number').value.trim(),
+      game:            document.getElementById('cert-game').value,
+      era:             document.getElementById('cert-era').value.trim(),
+      set_code:        document.getElementById('cert-set').value.trim(),
+      card_number:     document.getElementById('cert-card-number').value.trim(),
+      card_name:       document.getElementById('cert-card-name').value.trim(),
+      rarity:          document.getElementById('cert-rarity').value.trim(),
+      treatment:       document.getElementById('cert-treatment').value,
+      grading_company: document.getElementById('cert-grading-company').value,
+      grade:           document.getElementById('cert-grade').value,
+      role:            document.getElementById('cert-role').value,
+      tcgplayer_id:    tcgId || null,
+    };
+  }
+
+  function validateForm(body) {
+    if (!body.cert_number || !/^\d+$/.test(body.cert_number)) return 'Valid numeric cert number is required.';
+    if (!body.set_code) return 'Set code is required.';
+    if (!body.card_number) return 'Card number is required (used as card identity with game + set_code).';
+    return null;
+  }
+
+  let lastCatalogedBody = null;
+
+  async function uploadScans() {
+    const errEl = document.getElementById('upload-error');
+    const okEl = document.getElementById('upload-success');
+    errEl.classList.add('d-none');
+    okEl.classList.add('d-none');
+
+    if (!lastCatalogedBody) {
+      errEl.textContent = 'No cert cataloged yet. Catalog a card first.';
+      errEl.classList.remove('d-none');
+      return;
+    }
+
+    const frontFile = document.getElementById('upload-front').files[0];
+    const backFile = document.getElementById('upload-back').files[0];
+
+    if (!frontFile && !backFile) {
+      errEl.textContent = 'Select at least one image (front or back).';
+      errEl.classList.remove('d-none');
+      return;
+    }
+
+    const btn = document.getElementById('btn-upload');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Uploading...';
+
+    try {
+      const formData = new FormData();
+      formData.append('game', lastCatalogedBody.game);
+      formData.append('set_code', lastCatalogedBody.set_code);
+      formData.append('card_number', lastCatalogedBody.card_number);
+      formData.append('grading_company', lastCatalogedBody.grading_company);
+      formData.append('grade', lastCatalogedBody.grade);
+      if (frontFile) formData.append('front', frontFile);
+      if (backFile) formData.append('back', backFile);
+
+      // Upload uses fetch directly since api() sends JSON
+      const token = await firebase.auth().currentUser.getIdToken();
+      const backendURL = document.body.dataset.backendUrl;
+      const res = await fetch(`${backendURL}/certs/${lastCatalogedBody.cert_number}/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || res.statusText);
+      }
+
+      const result = await res.json();
+      const sides = Object.keys(result.uploaded || {}).join(' + ');
+      okEl.innerHTML = `<i class="bi bi-check-circle me-1"></i>Uploaded <strong>${sides}</strong> scan(s). Status: <strong>${result.scan_status}</strong>`;
+      okEl.classList.remove('d-none');
+      showToast('Scans uploaded successfully!', 'success');
+      await loadSubmissions();
+    } catch (e) {
+      errEl.textContent = 'Upload failed: ' + e.message;
+      errEl.classList.remove('d-none');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Upload to GCS';
+    }
+  }
+
+  firebase.auth().onAuthStateChanged(async user => {
+    if (!user) {
+      document.getElementById('auth-guard').classList.remove('d-none');
+      return;
+    }
+    document.getElementById('submit-section').classList.remove('d-none');
+    updatePathPreview();
+    await loadSubmissions();
+  });
+
+  async function submitCert() {
+    const errEl = document.getElementById('submit-error');
+    const okEl = document.getElementById('submit-success');
+    errEl.classList.add('d-none');
+    okEl.classList.add('d-none');
+
+    const body = getFormBody();
+    const err = validateForm(body);
+    if (err) {
+      errEl.textContent = err;
+      errEl.classList.remove('d-none');
+      return;
+    }
+
+    const btn = document.getElementById('btn-submit-cert');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cataloging...';
+
+    try {
+      const result = await api('POST', `/certs/${body.cert_number}/fetch`, body);
+      okEl.innerHTML = `<i class="bi bi-check-circle me-1"></i>Cert <strong>${escHtml(body.cert_number)}</strong> cataloged. Now upload front/back scans below.`;
+      okEl.classList.remove('d-none');
+
+      // Show upload section for this cert
+      lastCatalogedBody = body;
+      document.getElementById('upload-cert-num').textContent = body.cert_number;
+      document.getElementById('upload-section').classList.remove('d-none');
+      document.getElementById('upload-front').value = '';
+      document.getElementById('upload-back').value = '';
+      document.getElementById('upload-error').classList.add('d-none');
+      document.getElementById('upload-success').classList.add('d-none');
+
+      document.getElementById('cert-number').value = '';
+      updatePathPreview();
+      await loadSubmissions();
+      await loadCardStats(body);
+    } catch (e) {
+      errEl.textContent = 'Failed: ' + e.message;
+      errEl.classList.remove('d-none');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-send me-1"></i>Catalog Card';
+    }
+  }
+
+  async function batchSubmit() {
+    const text = document.getElementById('batch-certs').value.trim();
+    if (!text) return;
+
+    const certs = text.split('\n').map(s => s.trim()).filter(s => /^\d+$/.test(s));
+    if (certs.length === 0) {
+      showToast('No valid cert numbers found.', 'warning');
+      return;
+    }
+
+    // Validate card fields once (shared across batch)
+    const templateBody = getFormBody();
+    templateBody.cert_number = '0'; // placeholder for validation
+    const err = validateForm(templateBody);
+    if (err) {
+      showToast(err, 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('btn-batch-submit');
+    btn.disabled = true;
+    const progressEl = document.getElementById('batch-progress');
+    const bar = document.getElementById('batch-bar');
+    const status = document.getElementById('batch-status');
+    progressEl.classList.remove('d-none');
+
+    let done = 0;
+    let failed = 0;
+    for (const cert of certs) {
+      const body = getFormBody();
+      body.cert_number = cert;
+      try {
+        await api('POST', `/certs/${cert}/fetch`, body);
+      } catch (e) {
+        failed++;
+      }
+      done++;
+      const pct = ((done / certs.length) * 100).toFixed(0);
+      bar.style.width = pct + '%';
+      status.textContent = `${done} / ${certs.length} submitted` + (failed ? ` (${failed} failed)` : '');
+    }
+
+    btn.disabled = false;
+    showToast(`Batch complete: ${done - failed} cataloged, ${failed} failed.`, failed ? 'warning' : 'success');
+    document.getElementById('batch-certs').value = '';
+    await loadSubmissions();
+    await loadCardStats(getFormBody());
+  }
+
+  async function loadCardStats(body) {
+    try {
+      const stats = await api('GET', `/certs/stats?game=${body.game}&set_code=${body.set_code}&card_number=${body.card_number}`);
+      if (stats) {
+        document.getElementById('card-stat-refs').textContent = stats.reference_count || 0;
+        document.getElementById('card-stat-samples').textContent = stats.sample_count || 0;
+        document.getElementById('card-stat-candidates').textContent = stats.candidate_count || 0;
+        document.getElementById('card-stats-card').style.display = '';
+      }
+    } catch (e) {
+      // Stats endpoint may not exist yet
+    }
+  }
+
+  async function loadSubmissions() {
+    const loading = document.getElementById('submissions-loading');
+    const table = document.getElementById('submissions-table');
+    const empty = document.getElementById('submissions-empty');
+
+    loading.classList.remove('d-none');
+    table.classList.add('d-none');
+    empty.classList.add('d-none');
+
+    try {
+      const gameFilter = document.getElementById('history-filter-game').value;
+      const qs = gameFilter ? `?game=${gameFilter}` : '';
+      const subs = await api('GET', `/certs${qs}`);
+      loading.classList.add('d-none');
+
+      if (!subs || subs.length === 0) {
+        empty.classList.remove('d-none');
+        return;
+      }
+
+      document.getElementById('submissions-tbody').innerHTML = subs.map(s => `
+        <tr>
+          <td class="ps-3 font-monospace fw-medium">${escHtml(s.cert_number)}</td>
+          <td>${escHtml(s.card_name || '—')} ${s.card_number ? '<span class="text-muted small">#' + escHtml(s.card_number) + '</span>' : ''}</td>
+          <td><span class="text-muted small">${escHtml(s.set_code || '—')}</span></td>
+          <td><span class="badge bg-secondary">${escHtml(s.grading_company || 'PSA')} ${s.grade || '?'}</span></td>
+          <td>${roleBadge(s.role)}</td>
+          <td>${scanStatusBadge(s.scan_status)}</td>
+          <td class="font-monospace small text-muted" title="${escHtml(s.gcs_path || '')}">${truncPath(s.gcs_path)}</td>
+          <td class="text-end pe-3 text-muted small">${s.submitted_at || '—'}</td>
+        </tr>
+      `).join('');
+      table.classList.remove('d-none');
+    } catch (e) {
+      loading.classList.add('d-none');
+      empty.classList.remove('d-none');
+    }
+  }
+
+  function roleBadge(role) {
+    switch (role) {
+      case 'reference': return '<span class="badge bg-success">Reference</span>';
+      case 'candidate': return '<span class="badge bg-warning text-dark">Candidate</span>';
+      case 'sample':    return '<span class="badge bg-info">Sample</span>';
+      default:          return '<span class="badge bg-light text-dark">—</span>';
+    }
+  }
+
+  function scanStatusBadge(status) {
+    switch (status) {
+      case 'complete': return '<span class="badge bg-success">Complete</span>';
+      case 'pending':  return '<span class="badge bg-warning text-dark">Pending</span>';
+      case 'failed':   return '<span class="badge bg-danger">Failed</span>';
+      default:         return '<span class="badge bg-light text-dark">—</span>';
+    }
+  }
+
+  function truncPath(p) {
+    if (!p) return '—';
+    // Show last 3 path segments
+    const parts = p.replace('gs://slab-cracker-scans/', '').split('/');
+    return parts.length > 3 ? '.../' + parts.slice(-3).join('/') : p;
+  }
+
+  function escHtml(str) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(str));
+    return d.innerHTML;
+  }
+
+  document.getElementById('cert-number').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitCert();
+  });
+</script>
+{{ end }}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "gcp-slab-cracker": {
+      "command": "echo",
+      "args": ["MCP server not yet configured -- set up slab-cracker-mcp repo first"],
+      "disabled": true
+    }
+  }
+}

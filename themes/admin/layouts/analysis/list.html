@@ -1,0 +1,253 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-bar-chart me-2"></i>{{ .Title }}</h2>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadAnalyses()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+</div>
+
+<!-- Auth guard -->
+<div id="auth-guard" class="alert alert-warning d-none">
+  <i class="bi bi-lock me-1"></i>You must be <a href="{{ "" | relURL }}">signed in</a> to view analysis results.
+</div>
+
+<!-- Filters -->
+<div id="filters-section" class="d-none mb-3">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label small fw-medium">Card Name</label>
+      <input type="text" class="form-control form-control-sm" id="filter-card" placeholder="Search..." oninput="applyFilters()">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-medium">Min Similarity</label>
+      <select class="form-select form-select-sm" id="filter-similarity" onchange="applyFilters()">
+        <option value="0">All</option>
+        <option value="0.8">80%+ (Strong)</option>
+        <option value="0.6">60%+ (Maybe)</option>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-medium">Grade</label>
+      <select class="form-select form-select-sm" id="filter-grade" onchange="applyFilters()">
+        <option value="">All</option>
+        <option value="9">PSA 9</option>
+        <option value="8.5">PSA 8.5</option>
+        <option value="8">PSA 8</option>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-medium">Sort By</label>
+      <select class="form-select form-select-sm" id="sort-by" onchange="applyFilters()">
+        <option value="similarity_desc">Similarity (High-Low)</option>
+        <option value="similarity_asc">Similarity (Low-High)</option>
+        <option value="date_desc">Date (Newest)</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- Loading -->
+<div id="loading" class="text-center py-5">
+  <div class="spinner-border text-primary" role="status"></div>
+</div>
+
+<!-- Empty -->
+<div id="empty-state" class="text-center py-5 d-none">
+  <i class="bi bi-bar-chart fs-1 text-muted"></i>
+  <p class="text-muted mt-2">No analyses yet. <a href="{{ "submit/" | relURL }}">Submit a cert</a> to get started.</p>
+</div>
+
+<!-- Analysis results -->
+<div class="card shadow-sm border-0 d-none" id="results-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Cert #</th>
+            <th>Card</th>
+            <th>Grade</th>
+            <th>Similarity to 10</th>
+            <th>Centering</th>
+            <th>Edges</th>
+            <th>Corners</th>
+            <th>Surface</th>
+            <th>Verdict</th>
+            <th class="text-end pe-3">Analyzed</th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0">
+        <h5 class="modal-title">Analysis Detail</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3" id="detail-content">
+          <!-- Filled dynamically -->
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  let allAnalyses = [];
+  const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+
+  firebase.auth().onAuthStateChanged(async user => {
+    if (!user) {
+      document.getElementById('loading').classList.add('d-none');
+      document.getElementById('auth-guard').classList.remove('d-none');
+      return;
+    }
+    document.getElementById('filters-section').classList.remove('d-none');
+    await loadAnalyses();
+  });
+
+  async function loadAnalyses() {
+    document.getElementById('loading').classList.remove('d-none');
+    document.getElementById('results-card').classList.add('d-none');
+    document.getElementById('empty-state').classList.add('d-none');
+
+    try {
+      allAnalyses = await api('GET', '/analysis') || [];
+      document.getElementById('loading').classList.add('d-none');
+      if (allAnalyses.length === 0) {
+        document.getElementById('empty-state').classList.remove('d-none');
+        return;
+      }
+      applyFilters();
+    } catch (e) {
+      document.getElementById('loading').classList.add('d-none');
+      showToast('Failed to load analyses: ' + e.message, 'danger');
+    }
+  }
+
+  function applyFilters() {
+    const cardFilter = document.getElementById('filter-card').value.toLowerCase();
+    const minSim = parseFloat(document.getElementById('filter-similarity').value);
+    const gradeFilter = document.getElementById('filter-grade').value;
+    const sortBy = document.getElementById('sort-by').value;
+
+    let filtered = allAnalyses.filter(a => {
+      if (cardFilter && !(a.card_name || '').toLowerCase().includes(cardFilter)) return false;
+      if (a.similarity < minSim) return false;
+      if (gradeFilter && String(a.grade) !== gradeFilter) return false;
+      return true;
+    });
+
+    if (sortBy === 'similarity_desc') filtered.sort((a, b) => b.similarity - a.similarity);
+    else if (sortBy === 'similarity_asc') filtered.sort((a, b) => a.similarity - b.similarity);
+    else if (sortBy === 'date_desc') filtered.sort((a, b) => (b.analyzed_at || '').localeCompare(a.analyzed_at || ''));
+
+    renderResults(filtered);
+  }
+
+  function renderResults(results) {
+    if (results.length === 0) {
+      document.getElementById('results-card').classList.add('d-none');
+      document.getElementById('empty-state').classList.remove('d-none');
+      return;
+    }
+    document.getElementById('empty-state').classList.add('d-none');
+    document.getElementById('results-card').classList.remove('d-none');
+
+    document.getElementById('results-tbody').innerHTML = results.map(r => `
+      <tr style="cursor:pointer" onclick='showDetail(${JSON.stringify(r)})'>
+        <td class="ps-3 font-monospace fw-medium">${escHtml(r.cert_number)}</td>
+        <td>${escHtml(r.card_name || '—')}</td>
+        <td><span class="badge bg-secondary">PSA ${r.grade}</span></td>
+        <td>
+          <div class="d-flex align-items-center gap-2">
+            <div class="progress flex-grow-1" style="height:6px;min-width:60px">
+              <div class="progress-bar ${simColor(r.similarity)}" style="width:${(r.similarity*100).toFixed(0)}%"></div>
+            </div>
+            <span class="small fw-medium">${(r.similarity*100).toFixed(1)}%</span>
+          </div>
+        </td>
+        <td>${defectBadge(r.centering_score)}</td>
+        <td>${defectBadge(r.edge_score)}</td>
+        <td>${defectBadge(r.corner_score)}</td>
+        <td>${defectBadge(r.surface_score)}</td>
+        <td>${verdictBadge(r.similarity)}</td>
+        <td class="text-end pe-3 text-muted small">${r.analyzed_at || '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  function simColor(s) { return s >= 0.8 ? 'bg-success' : s >= 0.6 ? 'bg-warning' : 'bg-danger'; }
+  function verdictBadge(s) {
+    if (s >= 0.8) return '<span class="badge bg-success">Re-submit</span>';
+    if (s >= 0.6) return '<span class="badge bg-warning text-dark">Maybe</span>';
+    return '<span class="badge bg-danger">Skip</span>';
+  }
+  function defectBadge(score) {
+    if (score === undefined || score === null) return '<span class="text-muted">—</span>';
+    const pct = (score * 100).toFixed(0);
+    const cls = score >= 0.8 ? 'text-success' : score >= 0.6 ? 'text-warning' : 'text-danger';
+    return `<span class="${cls} small fw-medium">${pct}%</span>`;
+  }
+
+  function showDetail(r) {
+    document.getElementById('detail-content').innerHTML = `
+      <div class="col-md-6">
+        <h6>Card Info</h6>
+        <table class="table table-sm">
+          <tr><td class="text-muted">Cert #</td><td class="font-monospace">${escHtml(r.cert_number)}</td></tr>
+          <tr><td class="text-muted">Card</td><td>${escHtml(r.card_name || '—')}</td></tr>
+          <tr><td class="text-muted">Grade</td><td>PSA ${r.grade}</td></tr>
+          <tr><td class="text-muted">Analyzed</td><td>${r.analyzed_at || '—'}</td></tr>
+        </table>
+        <h6 class="mt-3">Similarity Score</h6>
+        <div class="d-flex align-items-center gap-2">
+          <div class="progress flex-grow-1" style="height:12px">
+            <div class="progress-bar ${simColor(r.similarity)}" style="width:${(r.similarity*100).toFixed(0)}%"></div>
+          </div>
+          <span class="fs-5 fw-bold">${(r.similarity*100).toFixed(1)}%</span>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <h6>Defect Breakdown</h6>
+        ${defectRow('Centering', r.centering_score)}
+        ${defectRow('Edges', r.edge_score)}
+        ${defectRow('Corners', r.corner_score)}
+        ${defectRow('Surface', r.surface_score)}
+        <h6 class="mt-3">Verdict</h6>
+        <p class="fs-5">${verdictBadge(r.similarity)}</p>
+        ${r.notes ? `<h6>Notes</h6><p class="text-muted small">${escHtml(r.notes)}</p>` : ''}
+      </div>
+    `;
+    detailModal.show();
+  }
+
+  function defectRow(label, score) {
+    if (score === undefined || score === null) return '';
+    const pct = (score * 100).toFixed(0);
+    const cls = score >= 0.8 ? 'bg-success' : score >= 0.6 ? 'bg-warning' : 'bg-danger';
+    return `
+      <div class="mb-2">
+        <div class="d-flex justify-content-between small"><span>${label}</span><span class="fw-medium">${pct}%</span></div>
+        <div class="progress" style="height:4px"><div class="progress-bar ${cls}" style="width:${pct}%"></div></div>
+      </div>`;
+  }
+
+  function escHtml(str) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(str));
+    return d.innerHTML;
+  }
+</script>
+{{ end }}

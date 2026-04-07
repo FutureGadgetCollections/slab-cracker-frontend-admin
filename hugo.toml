@@ -1,10 +1,10 @@
 baseURL = "/"
 languageCode = "en-us"
-title = "Admin App"
+title = "Slab Cracker Admin"
 theme = "admin"
 
 [params]
-  description = "A lightweight admin interface"
+  description = "Identify high-quality PSA 9 cards for re-submission"
   backendURL = "http://localhost:8080"
 
   # Firebase config — nested to match HUGO_PARAMS_FIREBASE_* env var mapping
