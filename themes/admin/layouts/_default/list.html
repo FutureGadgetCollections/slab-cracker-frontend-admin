@@ -94,7 +94,8 @@
   const itemModal   = new bootstrap.Modal(document.getElementById('itemModal'));
   const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
 
-  firebase.auth().onAuthStateChanged(async user => {
+  if (!window._firebaseReady) { document.getElementById('auth-guard').classList.remove('d-none'); document.getElementById('loading').classList.add('d-none'); }
+  else firebase.auth().onAuthStateChanged(async user => {
     if (!user) {
       document.getElementById('loading').classList.add('d-none');
       document.getElementById('auth-guard').classList.remove('d-none');

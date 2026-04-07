@@ -1,5 +1,20 @@
 // Firebase config is set as window.FIREBASE_CONFIG by Hugo at build time (see head.html partial).
-firebase.initializeApp(window.FIREBASE_CONFIG);
+// Validate that the config has actual values (empty when .env isn't sourced).
+window._firebaseReady = false;
+(function() {
+  const cfg = window.FIREBASE_CONFIG || {};
+  if (!cfg.apiKey || !cfg.projectId) {
+    console.error('Firebase config is empty. Did you source .env before running hugo server?');
+    console.error('Run: set -a && source .env && set +a && hugo server');
+    return;
+  }
+  try {
+    firebase.initializeApp(cfg);
+    window._firebaseReady = true;
+  } catch (e) {
+    console.error('Firebase init failed:', e);
+  }
+})();
 
 // Global sign-out
 async function authSignOut() {
@@ -9,13 +24,24 @@ async function authSignOut() {
 
 // Sign in with Google popup
 async function signInWithGoogle() {
+  if (!window._firebaseReady) {
+    const errEl = document.getElementById('auth-error');
+    if (errEl) {
+      errEl.textContent = 'Firebase not configured. Run: set -a && source .env && set +a && hugo server';
+      errEl.classList.remove('d-none');
+    }
+    return;
+  }
   const provider = new firebase.auth.GoogleAuthProvider();
   try {
     await firebase.auth().signInWithPopup(provider);
     // onAuthStateChanged handles whitelist check and redirect
   } catch (e) {
     if (e.code !== 'auth/popup-closed-by-user') {
-      showToast('Sign-in failed: ' + e.message, 'danger');
+      const msg = e.code === 'auth/unauthorized-domain'
+        ? 'This domain is not authorized in Firebase. Add it to Authentication > Settings > Authorized domains.'
+        : 'Sign-in failed: ' + (e.code || '') + ' — ' + e.message;
+      showToast(msg, 'danger');
     }
   }
 }
@@ -33,7 +59,12 @@ function isEmailAllowed(email) {
 }
 
 // Navbar auth state + admin enforcement
-firebase.auth().onAuthStateChanged(user => {
+if (!window._firebaseReady) {
+  // Show login button even when Firebase is misconfigured, so the error is visible on click
+  const loginBtn = document.getElementById("btn-login");
+  if (loginBtn) loginBtn.classList.remove("d-none");
+}
+if (window._firebaseReady) firebase.auth().onAuthStateChanged(user => {
   const emailEl   = document.getElementById("nav-user-email");
   const logoutBtn = document.getElementById("btn-logout");
   const loginBtn  = document.getElementById("btn-login");

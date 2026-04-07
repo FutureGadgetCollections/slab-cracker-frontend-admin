@@ -19,15 +19,21 @@
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
-            Enter the cert number and card details. The backend will fetch the official scans and file them
-            under the right card and grade in storage.
+            Enter a PSA cert number to auto-fill card details from PSA's database.
+            Review and adjust any fields, then catalog.
           </p>
 
-          <!-- Cert number -->
+          <!-- Cert number + Lookup -->
           <div class="mb-3">
             <label class="form-label small fw-medium">PSA Cert Number</label>
-            <input type="text" class="form-control form-control-lg font-monospace" id="cert-number"
-                   placeholder="e.g. 12345678" maxlength="20" autocomplete="off">
+            <div class="input-group">
+              <input type="text" class="form-control form-control-lg font-monospace" id="cert-number"
+                     placeholder="e.g. 12345678" maxlength="20" autocomplete="off">
+              <button class="btn btn-outline-primary" type="button" id="btn-lookup" onclick="lookupCert()">
+                <i class="bi bi-search me-1"></i>Lookup
+              </button>
+            </div>
+            <div id="lookup-status" class="small mt-1 d-none"></div>
           </div>
 
           <hr class="my-3">
@@ -121,6 +127,16 @@
             </div>
           </div>
 
+          <!-- PSA raw data (shown after lookup) -->
+          <div id="psa-raw-data" class="d-none mt-3">
+            <hr class="my-3">
+            <div class="p-2 bg-light rounded small">
+              <span class="fw-medium"><i class="bi bi-info-circle me-1"></i>PSA Data</span>
+              <span id="psa-existing-badge" class="badge bg-success ms-2 d-none">Existing card</span>
+              <div class="font-monospace mt-1 text-muted" id="psa-raw-fields"></div>
+            </div>
+          </div>
+
           <!-- GCS path preview -->
           <div class="mt-3 p-2 bg-light rounded small font-monospace" id="gcs-path-preview">
             <span class="text-muted">GCS path:</span> <span id="gcs-path-text">--</span>
@@ -169,7 +185,7 @@
         <div class="card-body">
           <p class="text-muted small">
             Paste multiple cert numbers (one per line) for the <strong>same card and grade</strong>.
-            Uses the game/set/card fields from the left form.
+            Uses the card details from the left form — run Lookup on one cert first to auto-fill.
           </p>
           <textarea class="form-control font-monospace mb-3" id="batch-certs" rows="6"
                     placeholder="12345678&#10;23456789&#10;34567890"></textarea>
@@ -381,15 +397,19 @@
     }
   }
 
-  firebase.auth().onAuthStateChanged(async user => {
-    if (!user) {
-      document.getElementById('auth-guard').classList.remove('d-none');
-      return;
-    }
-    document.getElementById('submit-section').classList.remove('d-none');
-    updatePathPreview();
-    await loadSubmissions();
-  });
+  if (!window._firebaseReady) {
+    document.getElementById('auth-guard').classList.remove('d-none');
+  } else {
+    firebase.auth().onAuthStateChanged(async user => {
+      if (!user) {
+        document.getElementById('auth-guard').classList.remove('d-none');
+        return;
+      }
+      document.getElementById('submit-section').classList.remove('d-none');
+      updatePathPreview();
+      await loadSubmissions();
+    });
+  }
 
   async function submitCert() {
     const errEl = document.getElementById('submit-error');
@@ -570,7 +590,79 @@
   }
 
   document.getElementById('cert-number').addEventListener('keydown', e => {
-    if (e.key === 'Enter') submitCert();
+    if (e.key === 'Enter') lookupCert();
   });
+
+  async function lookupCert() {
+    const certNum = document.getElementById('cert-number').value.trim();
+    if (!certNum || !/^\d+$/.test(certNum)) {
+      showToast('Enter a valid numeric cert number.', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('btn-lookup');
+    const statusEl = document.getElementById('lookup-status');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Looking up...';
+    statusEl.classList.remove('d-none', 'text-danger', 'text-success');
+    statusEl.textContent = 'Fetching cert data from PSA...';
+    statusEl.classList.add('text-muted');
+
+    try {
+      const data = await api('GET', `/certs/${certNum}/lookup`);
+
+      // Populate form fields
+      if (data.game) document.getElementById('cert-game').value = data.game;
+      if (data.era) document.getElementById('cert-era').value = data.era;
+      if (data.set_code) document.getElementById('cert-set').value = data.set_code;
+      if (data.card_number) document.getElementById('cert-card-number').value = data.card_number;
+      if (data.card_name) document.getElementById('cert-card-name').value = data.card_name;
+      if (data.rarity) document.getElementById('cert-rarity').value = data.rarity;
+      if (data.treatment) document.getElementById('cert-treatment').value = data.treatment;
+      if (data.grade) document.getElementById('cert-grade').value = data.grade;
+      if (data.grading_company) document.getElementById('cert-grading-company').value = data.grading_company;
+      if (data.tcgplayer_id) document.getElementById('cert-tcgplayer-id').value = data.tcgplayer_id;
+
+      // Auto-set role based on grade
+      if (data.grade === '10' || data.grade === '9.5') {
+        document.getElementById('cert-role').value = 'reference';
+      } else {
+        document.getElementById('cert-role').value = 'sample';
+      }
+
+      // Show raw PSA data for transparency
+      const rawEl = document.getElementById('psa-raw-fields');
+      rawEl.innerHTML = [
+        data.psa_brand && `Brand: ${escHtml(data.psa_brand)}`,
+        data.psa_subject && `Subject: ${escHtml(data.psa_subject)}`,
+        data.psa_grade_text && `Grade: ${escHtml(data.psa_grade_text)}`,
+        data.psa_category && `Category: ${escHtml(data.psa_category)}`,
+        data.psa_variety && `Variety: ${escHtml(data.psa_variety)}`,
+        data.psa_year && `Year: ${escHtml(data.psa_year)}`,
+      ].filter(Boolean).join('<br>');
+      document.getElementById('psa-raw-data').classList.remove('d-none');
+
+      // Show existing card badge if found
+      const existingBadge = document.getElementById('psa-existing-badge');
+      if (data.existing_card) {
+        existingBadge.classList.remove('d-none');
+      } else {
+        existingBadge.classList.add('d-none');
+      }
+
+      statusEl.textContent = 'Lookup complete — review fields and catalog.';
+      statusEl.classList.remove('text-muted');
+      statusEl.classList.add('text-success');
+      showToast('Cert data loaded! Review and click Catalog.', 'success');
+      updatePathPreview();
+    } catch (e) {
+      statusEl.textContent = 'Lookup failed: ' + e.message;
+      statusEl.classList.remove('text-muted');
+      statusEl.classList.add('text-danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-search me-1"></i>Lookup';
+    }
+  }
 </script>
 {{ end }}

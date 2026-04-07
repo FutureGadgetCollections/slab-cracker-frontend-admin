@@ -75,7 +75,8 @@
 <script>
   let allCandidates = [];
 
-  firebase.auth().onAuthStateChanged(async user => {
+  if (!window._firebaseReady) { document.getElementById('loading').classList.add('d-none'); document.getElementById('auth-guard').classList.remove('d-none'); }
+  else firebase.auth().onAuthStateChanged(async user => {
     if (!user) {
       document.getElementById('loading').classList.add('d-none');
       document.getElementById('auth-guard').classList.remove('d-none');
