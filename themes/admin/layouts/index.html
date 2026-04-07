@@ -106,8 +106,7 @@
 
 {{ define "page-scripts" }}
 <script>
-  if (!window._firebaseReady) return;
-  firebase.auth().onAuthStateChanged(async user => {
+  if (window._firebaseReady) firebase.auth().onAuthStateChanged(async user => {
     if (user) {
       document.getElementById('auth-section').classList.add('d-none');
       document.getElementById('signed-in-section').classList.remove('d-none');
