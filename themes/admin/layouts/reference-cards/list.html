@@ -15,19 +15,71 @@
   <i class="bi bi-lock me-1"></i>You must be <a href="{{ "" | relURL }}">signed in</a> to manage reference cards.
 </div>
 
+<!-- Filters -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-medium mb-1">Game</label>
+        <select class="form-select form-select-sm" id="filter-game">
+          <option value="">All Games</option>
+          <option value="pokemon">Pokemon</option>
+          <option value="mtg">MTG</option>
+          <option value="yugioh">Yu-Gi-Oh!</option>
+          <option value="one-piece">One Piece</option>
+          <option value="sports-baseball">Baseball</option>
+          <option value="sports-basketball">Basketball</option>
+          <option value="sports-football">Football</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-medium mb-1">Grade</label>
+        <select class="form-select form-select-sm" id="filter-grade">
+          <option value="">All Grades</option>
+          <option value="10">10</option>
+          <option value="9.5">9.5</option>
+          <option value="9">9</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-medium mb-1">Set Code</label>
+        <input type="text" class="form-control form-control-sm" id="filter-set" placeholder="e.g. jtg">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-medium mb-1">Search</label>
+        <input type="text" class="form-control form-control-sm" id="filter-search" placeholder="Card name or cert #">
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary btn-sm w-100" onclick="loadRefs()">
+          <i class="bi bi-search me-1"></i>Search
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Loading -->
-<div id="loading" class="text-center py-5">
+<div id="loading" class="text-center py-5 d-none">
   <div class="spinner-border text-primary" role="status"></div>
 </div>
 
 <!-- Empty -->
 <div id="empty-state" class="text-center py-5 d-none">
   <i class="bi bi-star fs-1 text-muted"></i>
-  <p class="text-muted mt-2">No reference cards yet. Add your first PSA 10 or BGS Black Label.</p>
+  <p class="text-muted mt-2">No baseline cards found. Adjust filters or add your first cert.</p>
+</div>
+
+<!-- Prompt -->
+<div id="prompt-state" class="text-center py-5">
+  <i class="bi bi-funnel fs-1 text-muted"></i>
+  <p class="text-muted mt-2">Use the filters above and click Search to load baseline cards.</p>
 </div>
 
 <!-- Reference cards table -->
 <div class="card shadow-sm border-0 d-none" id="refs-card">
+  <div class="card-header bg-white border-0 d-flex align-items-center justify-content-between py-2">
+    <span class="small text-muted" id="refs-count"></span>
+  </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover align-middle mb-0">
@@ -36,11 +88,10 @@
             <th class="ps-3">Card</th>
             <th>Set</th>
             <th>Number</th>
-            <th>Grading Co.</th>
             <th>Grade</th>
             <th>Cert #</th>
             <th>Scans</th>
-            <th class="text-end pe-3">Actions</th>
+            <th class="text-end pe-3"></th>
           </tr>
         </thead>
         <tbody id="refs-tbody"></tbody>
@@ -136,34 +187,62 @@
 
 {{ define "page-scripts" }}
 <script>
-  const RESOURCE_PATH = '/certs?role=baseline';
   const refModal = new bootstrap.Modal(document.getElementById('refModal'));
   const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
 
-  if (!window._firebaseReady) { document.getElementById('loading').classList.add('d-none'); document.getElementById('auth-guard').classList.remove('d-none'); }
+  if (!window._firebaseReady) { document.getElementById('auth-guard').classList.remove('d-none'); document.getElementById('prompt-state').classList.add('d-none'); }
   else firebase.auth().onAuthStateChanged(async user => {
     if (!user) {
-      document.getElementById('loading').classList.add('d-none');
       document.getElementById('auth-guard').classList.remove('d-none');
+      document.getElementById('prompt-state').classList.add('d-none');
       return;
     }
-    await loadRefs();
+  });
+
+  // Enter key triggers search on filter inputs
+  ['filter-game', 'filter-grade', 'filter-set', 'filter-search'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') loadRefs();
+    });
   });
 
   async function loadRefs() {
+    const game = document.getElementById('filter-game').value;
+    const grade = document.getElementById('filter-grade').value;
+    const setCode = document.getElementById('filter-set').value.trim();
+    const search = document.getElementById('filter-search').value.trim().toLowerCase();
+
+    document.getElementById('prompt-state').classList.add('d-none');
+    document.getElementById('empty-state').classList.add('d-none');
+    document.getElementById('refs-card').classList.add('d-none');
+    document.getElementById('loading').classList.remove('d-none');
+
+    // Build query params
+    let qs = 'role=baseline';
+    if (game) qs += `&game=${encodeURIComponent(game)}`;
+    if (setCode) qs += `&set_code=${encodeURIComponent(setCode)}`;
+
     try {
-      const refs = await api('GET', RESOURCE_PATH);
+      let refs = await api('GET', `/certs?${qs}`);
       document.getElementById('loading').classList.add('d-none');
+
+      // Client-side filtering for grade and search (BQ endpoint doesn't support these)
+      if (grade) refs = refs.filter(r => r.grade === grade);
+      if (search) refs = refs.filter(r =>
+        (r.card_name || '').toLowerCase().includes(search) ||
+        (r.cert_number || '').includes(search)
+      );
+
       if (!refs || refs.length === 0) {
         document.getElementById('empty-state').classList.remove('d-none');
         return;
       }
-      document.getElementById('empty-state').classList.add('d-none');
+      document.getElementById('refs-count').textContent = `${refs.length} card${refs.length !== 1 ? 's' : ''}`;
       renderRefs(refs);
       document.getElementById('refs-card').classList.remove('d-none');
     } catch (e) {
       document.getElementById('loading').classList.add('d-none');
-      showToast('Failed to load reference cards: ' + e.message, 'danger');
+      showToast('Failed to load: ' + e.message, 'danger');
     }
   }
 
@@ -175,14 +254,21 @@
 
   const PSA_PROXY_URL = (window.PSA_PROXY_URL || 'http://localhost:3001').replace(/\/$/, '');
 
+  function gradeBadgeClass(grade) {
+    const g = parseFloat(grade);
+    if (g >= 10) return 'bg-success';       // 10 — green
+    if (g >= 9.5) return 'bg-primary';      // 9.5 — blue
+    if (g >= 9) return 'bg-info text-dark';  // 9 — light blue
+    return 'bg-secondary';                   // 8.5 and below
+  }
+
   function renderRefs(refs) {
     document.getElementById('refs-tbody').innerHTML = refs.map(r => `
       <tr>
         <td class="ps-3 fw-medium">${escHtml(r.card_name || '—')}</td>
         <td>${escHtml(r.set_code || '—')}</td>
         <td class="font-monospace">${escHtml(r.card_number || '—')}</td>
-        <td>${escHtml(r.grading_company || 'PSA')}</td>
-        <td><span class="badge bg-success">${escHtml(r.grade)}</span></td>
+        <td><span class="badge ${gradeBadgeClass(r.grade)}">${escHtml(r.grading_company || 'PSA')} ${escHtml(r.grade)}</span></td>
         <td class="font-monospace">${escHtml(r.cert_number)}</td>
         <td>
           ${r.gcs_front_path
