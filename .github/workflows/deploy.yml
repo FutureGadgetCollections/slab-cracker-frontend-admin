@@ -27,9 +27,9 @@ jobs:
           extended: true
 
       - name: Build
-        run: hugo --minify --baseURL "$GITHUB_PAGES_URL"
+        run: hugo --minify --baseURL "$PAGES_BASE_URL"
         env:
-          GITHUB_PAGES_URL: ${{ vars.GITHUB_PAGES_URL }}
+          PAGES_BASE_URL: ${{ vars.PAGES_BASE_URL }}
           # Secrets (sensitive keys)
           HUGO_PARAMS_FIREBASE_API_KEY: ${{ secrets.HUGO_PARAMS_FIREBASE_API_KEY }}
           HUGO_PARAMS_FIREBASE_APP_ID: ${{ secrets.HUGO_PARAMS_FIREBASE_APP_ID }}
