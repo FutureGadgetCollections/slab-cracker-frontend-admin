@@ -642,7 +642,7 @@
   // Scans fetched from proxy, stored as blobs for upload
   let proxyScans = null;
 
-  const PSA_PROXY_URL = 'http://localhost:3001';
+  const PSA_PROXY_URL = (window.PSA_PROXY_URL || 'http://localhost:3001').replace(/\/$/, '');
 
   async function lookupCert() {
     const certNum = document.getElementById('cert-number').value.trim();

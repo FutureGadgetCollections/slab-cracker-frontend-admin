@@ -1,25 +1,34 @@
 #!/usr/bin/env python3
 """
-Local PSA cert proxy for slab-cracker.
+PSA cert proxy for slab-cracker.
 
-Runs on localhost:3001 and fetches PSA cert pages from your local IP
-(avoids Cloudflare blocking cloud IPs). Parses metadata and downloads
-front/back scan images.
+Fetches PSA cert pages from a residential IP (avoids Cloudflare blocking
+cloud IPs). Parses metadata and downloads front/back scan images.
 
-Usage:
+Usage (local):
     python mcp/psa_proxy.py
 
-The admin frontend calls this automatically when you click Lookup.
+Usage (container):
+    docker build -t psa-proxy mcp/
+    docker run -p 3001:3001 -e PSA_PROXY_API_KEY=mysecret psa-proxy
+
+Environment variables:
+    PSA_PROXY_PORT      Port to listen on (default: 3001)
+    PSA_PROXY_BIND      Bind address (default: 127.0.0.1, use 0.0.0.0 for container)
+    PSA_PROXY_API_KEY   If set, requires X-API-Key header on all requests
 """
 
 import base64
 import json
+import os
 import re
 import subprocess
 import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-PORT = 3001
+PORT = int(os.environ.get("PSA_PROXY_PORT", "3001"))
+BIND = os.environ.get("PSA_PROXY_BIND", "127.0.0.1")
+API_KEY = os.environ.get("PSA_PROXY_API_KEY", "")
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -188,7 +197,29 @@ def lookup_cert(cert_number: str) -> dict:
 # ── HTTP server ───────────────────────────────────────────────────────────────
 
 class ProxyHandler(BaseHTTPRequestHandler):
+    def _check_api_key(self):
+        """Returns True if authorized, False if rejected (response already sent)."""
+        if not API_KEY:
+            return True
+        key = self.headers.get("X-API-Key", "")
+        if key == API_KEY:
+            return True
+        self.send_json_error(401, "Invalid or missing X-API-Key")
+        return False
+
     def do_GET(self):
+        if not self._check_api_key():
+            return
+
+        # Health check
+        if self.path == "/health":
+            self.send_response(200)
+            self.send_cors_headers()
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+            return
+
         # Route: /lookup/{cert_number}
         m = re.match(r"^/lookup/(\d+)$", self.path)
         if not m:
@@ -224,7 +255,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
 
     def send_json_error(self, code, message):
         body = json.dumps({"error": message}).encode("utf-8")
@@ -241,9 +272,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = HTTPServer(("127.0.0.1", PORT), ProxyHandler)
-    print(f"PSA cert proxy running on http://localhost:{PORT}")
-    print(f"Usage: http://localhost:{PORT}/lookup/133719529")
+    server = HTTPServer((BIND, PORT), ProxyHandler)
+    print(f"PSA cert proxy running on http://{BIND}:{PORT}")
+    print(f"Usage: http://{BIND}:{PORT}/lookup/133719529")
+    if API_KEY:
+        print(f"API key required: X-API-Key header")
+    else:
+        print("No API key configured (set PSA_PROXY_API_KEY for auth)")
     print("Press Ctrl+C to stop.\n")
     try:
         server.serve_forever()
