@@ -137,7 +137,7 @@
 
 {{ define "page-scripts" }}
 <script>
-  const RESOURCE_PATH = '/reference-cards';
+  const RESOURCE_PATH = '/certs?role=reference';
   const refModal = new bootstrap.Modal(document.getElementById('refModal'));
   const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
 
@@ -171,20 +171,15 @@
   function renderRefs(refs) {
     document.getElementById('refs-tbody').innerHTML = refs.map(r => `
       <tr>
-        <td class="ps-3 fw-medium">${escHtml(r.card_name)}</td>
-        <td>${escHtml(r.set_name || '—')}</td>
+        <td class="ps-3 fw-medium">${escHtml(r.card_name || '—')}</td>
+        <td>${escHtml(r.set_code || '—')}</td>
         <td class="font-monospace">${escHtml(r.card_number || '—')}</td>
-        <td>${escHtml(r.grading_company)}</td>
+        <td>${escHtml(r.grading_company || 'PSA')}</td>
         <td><span class="badge bg-success">${escHtml(r.grade)}</span></td>
         <td class="font-monospace">${escHtml(r.cert_number)}</td>
-        <td>${r.has_scans ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-hourglass text-warning"></i>'}</td>
+        <td>${r.scan_status === 'complete' ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-hourglass text-warning"></i>'}</td>
         <td class="text-end pe-3">
-          <button class="btn btn-sm btn-outline-secondary me-1" onclick='openEditModal(${JSON.stringify(r)})'>
-            <i class="bi bi-pencil"></i>
-          </button>
-          <button class="btn btn-sm btn-outline-danger" onclick="openDeleteModal('${r.id}')">
-            <i class="bi bi-trash3"></i>
-          </button>
+          <span class="text-muted small">${escHtml(r.game || '')}</span>
         </td>
       </tr>
     `).join('');
