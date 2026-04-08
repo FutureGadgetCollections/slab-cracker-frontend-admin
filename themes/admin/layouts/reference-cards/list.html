@@ -183,6 +183,62 @@
     </div>
   </div>
 </div>
+<!-- Centering Analysis Modal -->
+<div class="modal fade" id="centeringModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title"><i class="bi bi-rulers me-1"></i>Centering Analysis — <span id="centering-cert"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="centering-loading" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="text-muted small mt-2">Detecting edges...</p>
+        </div>
+        <div id="centering-result" class="d-none">
+          <div class="text-center mb-3">
+            <img id="centering-preview" class="img-fluid rounded border" alt="Centering analysis" style="max-height:500px;">
+          </div>
+          <div class="row g-2 text-center mb-3">
+            <div class="col-4">
+              <div class="card border p-2">
+                <div class="text-muted small">Top</div>
+                <div class="fw-bold" id="centering-top">—</div>
+                <div class="text-muted small" id="centering-top-px"></div>
+              </div>
+            </div>
+            <div class="col-4">
+              <div class="card border p-2">
+                <div class="text-muted small">Center</div>
+                <div class="fw-bold" id="centering-center">—</div>
+                <div class="text-muted small" id="centering-center-px"></div>
+              </div>
+            </div>
+            <div class="col-4">
+              <div class="card border p-2">
+                <div class="text-muted small">Bottom</div>
+                <div class="fw-bold" id="centering-bottom">—</div>
+                <div class="text-muted small" id="centering-bottom-px"></div>
+              </div>
+            </div>
+          </div>
+          <div class="text-center">
+            <div class="text-muted small mb-1">Overall</div>
+            <div class="fs-4 fw-bold" id="centering-summary">—</div>
+          </div>
+        </div>
+        <div id="centering-error" class="alert alert-danger py-2 small d-none"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0" id="centering-actions" style="display:none">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Reject</button>
+        <button type="button" class="btn btn-success btn-sm" id="centering-approve-btn">
+          <i class="bi bi-check-lg me-1"></i>Approve & Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {{ end }}
 
 {{ define "page-scripts" }}
@@ -282,7 +338,9 @@
           </button>
         </td>
         <td class="text-end pe-3">
-          <span class="text-muted small">${escHtml(r.game || '')}</span>
+          ${r.gcs_front_path
+            ? `<button class="btn btn-outline-info btn-sm py-0 px-1" onclick="analyzeCentering('${escHtml(r.cert_number)}', '${escHtml(r.gcs_front_path)}')" title="Analyze centering"><i class="bi bi-rulers"></i></button>`
+            : '<span class="text-muted small">No scan</span>'}
         </td>
       </tr>
     `).join('');
@@ -420,5 +478,84 @@
     d.appendChild(document.createTextNode(str));
     return d.innerHTML;
   }
+
+  // ── Centering Analysis ──────────────────────────────────────────────────
+
+  const centeringModal = new bootstrap.Modal(document.getElementById('centeringModal'));
+  let pendingCenteringData = null;
+  let pendingCenteringCert = null;
+
+  async function analyzeCentering(certNumber, gcsFrontPath) {
+    pendingCenteringCert = certNumber;
+    pendingCenteringData = null;
+
+    document.getElementById('centering-cert').textContent = certNumber;
+    document.getElementById('centering-loading').classList.remove('d-none');
+    document.getElementById('centering-result').classList.add('d-none');
+    document.getElementById('centering-error').classList.add('d-none');
+    document.getElementById('centering-actions').style.display = 'none';
+    centeringModal.show();
+
+    const proxyHeaders = {};
+    const proxyKey = window.PSA_PROXY_KEY;
+    if (proxyKey) proxyHeaders['X-API-Key'] = proxyKey;
+
+    const backendURL = document.body.dataset.backendUrl;
+    const scanUrl = `${backendURL}/scans/${gcsFrontPath}`;
+
+    try {
+      const resp = await fetch(`${PSA_PROXY_URL}/analyze?scan_url=${encodeURIComponent(scanUrl)}`, { headers: proxyHeaders });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        throw new Error(err.error || resp.statusText);
+      }
+      const data = await resp.json();
+      pendingCenteringData = data;
+
+      // Show annotated image
+      document.getElementById('centering-preview').src = 'data:image/png;base64,' + data.annotated_image;
+
+      // Show measurements
+      for (const pos of ['top', 'center', 'bottom']) {
+        const m = data.measurements[pos];
+        document.getElementById(`centering-${pos}`).textContent = m.ratio;
+        document.getElementById(`centering-${pos}-px`).textContent =
+          m.left_border_px != null ? `${m.left_border_px}px / ${m.right_border_px}px` : '';
+      }
+      document.getElementById('centering-summary').textContent = data.summary;
+
+      document.getElementById('centering-loading').classList.add('d-none');
+      document.getElementById('centering-result').classList.remove('d-none');
+      document.getElementById('centering-actions').style.display = '';
+    } catch (e) {
+      document.getElementById('centering-loading').classList.add('d-none');
+      const errEl = document.getElementById('centering-error');
+      errEl.textContent = e.message.includes('Failed to fetch')
+        ? 'Proxy not running — start with: python mcp/psa_proxy.py'
+        : 'Analysis failed: ' + e.message;
+      errEl.classList.remove('d-none');
+    }
+  }
+
+  document.getElementById('centering-approve-btn').addEventListener('click', async () => {
+    if (!pendingCenteringData || !pendingCenteringCert) return;
+    const btn = document.getElementById('centering-approve-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+
+    try {
+      await api('POST', `/certs/${pendingCenteringCert}/centering`, {
+        measurements: pendingCenteringData.measurements,
+        summary: pendingCenteringData.summary,
+      });
+      showToast(`Centering saved for cert ${pendingCenteringCert}: ${pendingCenteringData.summary}`, 'success');
+      centeringModal.hide();
+    } catch (e) {
+      showToast('Failed to save centering: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Approve & Save';
+    }
+  });
 </script>
 {{ end }}

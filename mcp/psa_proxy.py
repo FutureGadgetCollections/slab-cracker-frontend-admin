@@ -220,13 +220,38 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"status":"ok"}')
             return
 
+        # Route: /analyze?scan_url=<url>
+        if self.path.startswith("/analyze"):
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            scan_url = qs.get("scan_url", [None])[0]
+            if not scan_url:
+                self.send_json_error(400, "scan_url query param required")
+                return
+            print(f"Analyzing centering: {scan_url}")
+            try:
+                img_data = fetch_url(scan_url)
+                from centering import analyze_centering
+                result = analyze_centering(img_data)
+                body = json.dumps(result).encode("utf-8")
+                self.send_response(200)
+                self.send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                print(f"  -> centering: {result.get('summary', '?')}")
+            except Exception as e:
+                self.send_json_error(500, f"Analysis failed: {e}")
+            return
+
         # Route: /lookup/{cert_number}
         m = re.match(r"^/lookup/(\d+)$", self.path)
         if not m:
             self.send_response(404)
             self.send_cors_headers()
             self.end_headers()
-            self.wfile.write(b'{"error":"Use /lookup/{cert_number}"}')
+            self.wfile.write(b'{"error":"Use /lookup/{cert_number} or /analyze?scan_url=..."}')
             return
 
         cert_number = m.group(1)

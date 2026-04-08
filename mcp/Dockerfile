@@ -2,8 +2,10 @@ FROM python:3.13-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
+RUN pip install --no-cache-dir Pillow
+
 WORKDIR /app
-COPY psa_proxy.py .
+COPY psa_proxy.py centering.py .
 
 ENV PSA_PROXY_PORT=3001
 ENV PSA_PROXY_BIND=0.0.0.0
