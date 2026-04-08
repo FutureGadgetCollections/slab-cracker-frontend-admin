@@ -52,8 +52,8 @@
   <div class="row g-3">
     <div class="col-md-3">
       <div class="card shadow-sm border-0 text-center p-3">
-        <div class="text-muted small">Reference 10s</div>
-        <div class="fs-3 fw-bold text-primary" id="stat-references">--</div>
+        <div class="text-muted small">Baselines</div>
+        <div class="fs-3 fw-bold text-primary" id="stat-baselines">--</div>
       </div>
     </div>
     <div class="col-md-3">
@@ -131,7 +131,7 @@
     try {
       const stats = await loadJsonData('data/stats.json');
       if (stats) {
-        document.getElementById('stat-references').textContent = stats.reference_count || 0;
+        document.getElementById('stat-baselines').textContent = stats.baseline_count || 0;
         document.getElementById('stat-scans').textContent = stats.scan_count || 0;
         document.getElementById('stat-analyses').textContent = stats.analysis_count || 0;
         document.getElementById('stat-candidates').textContent = stats.candidate_count || 0;

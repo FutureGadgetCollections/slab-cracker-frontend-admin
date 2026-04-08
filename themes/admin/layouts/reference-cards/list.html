@@ -7,8 +7,7 @@
 </div>
 
 <p class="text-muted small">
-  Reference cards are PSA 10s or BGS Black Label 10s that represent the "perfect" version of a card.
-  These are used as baselines when comparing PSA 9 submissions.
+  Baseline cards are cataloged certs (any grade) that build the quality distribution for comparison.
 </p>
 
 <!-- Auth guard -->
@@ -137,7 +136,7 @@
 
 {{ define "page-scripts" }}
 <script>
-  const RESOURCE_PATH = '/certs?role=reference';
+  const RESOURCE_PATH = '/certs?role=baseline';
   const refModal = new bootstrap.Modal(document.getElementById('refModal'));
   const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
 

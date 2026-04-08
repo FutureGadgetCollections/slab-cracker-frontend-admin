@@ -144,8 +144,7 @@
             <div class="col-md-4">
               <label class="form-label small fw-medium">Role</label>
               <select class="form-select" id="cert-role">
-                <option value="sample">Sample (for comparison)</option>
-                <option value="reference">Reference (baseline 10)</option>
+                <option value="baseline">Baseline (grade distribution)</option>
                 <option value="candidate">Candidate (considering purchase)</option>
               </select>
             </div>
@@ -222,15 +221,11 @@
         </div>
         <div class="card-body">
           <div class="row g-2 text-center">
-            <div class="col-4">
-              <div class="text-muted small">Reference 10s</div>
-              <div class="fs-4 fw-bold text-success" id="card-stat-refs">0</div>
+            <div class="col-6">
+              <div class="text-muted small">Baselines</div>
+              <div class="fs-4 fw-bold text-success" id="card-stat-baselines">0</div>
             </div>
-            <div class="col-4">
-              <div class="text-muted small">9 Samples</div>
-              <div class="fs-4 fw-bold text-info" id="card-stat-samples">0</div>
-            </div>
-            <div class="col-4">
+            <div class="col-6">
               <div class="text-muted small">Candidates</div>
               <div class="fs-4 fw-bold text-warning" id="card-stat-candidates">0</div>
             </div>
@@ -556,8 +551,7 @@
     try {
       const stats = await api('GET', `/certs/stats?game=${body.game}&set_code=${body.set_code}&card_number=${body.card_number}`);
       if (stats) {
-        document.getElementById('card-stat-refs').textContent = stats.reference_count || 0;
-        document.getElementById('card-stat-samples').textContent = stats.sample_count || 0;
+        document.getElementById('card-stat-baselines').textContent = stats.baseline_count || 0;
         document.getElementById('card-stat-candidates').textContent = stats.candidate_count || 0;
         document.getElementById('card-stats-card').style.display = '';
       }
@@ -607,9 +601,10 @@
 
   function roleBadge(role) {
     switch (role) {
-      case 'reference': return '<span class="badge bg-success">Reference</span>';
+      case 'baseline':
+      case 'reference':
+      case 'sample':    return '<span class="badge bg-success">Baseline</span>';
       case 'candidate': return '<span class="badge bg-warning text-dark">Candidate</span>';
-      case 'sample':    return '<span class="badge bg-info">Sample</span>';
       default:          return '<span class="badge bg-light text-dark">—</span>';
     }
   }
@@ -684,9 +679,8 @@
       if (data.grade) document.getElementById('cert-grade').value = data.grade;
       if (data.grading_company) document.getElementById('cert-grading-company').value = data.grading_company;
 
-      // Auto-set role based on grade
-      const g = parseFloat(data.grade);
-      document.getElementById('cert-role').value = g >= 9.5 ? 'reference' : 'sample';
+      // Auto-set role — default to baseline for all grades
+      document.getElementById('cert-role').value = 'baseline';
 
       // Handle scan images
       proxyScans = null;
@@ -743,9 +737,8 @@
     if (gradeMatch) {
       document.getElementById('cert-grading-company').value = gradeMatch[1].toUpperCase();
       document.getElementById('cert-grade').value = gradeMatch[2];
-      // Auto-set role
-      const g = parseFloat(gradeMatch[2]);
-      document.getElementById('cert-role').value = g >= 9.5 ? 'reference' : 'sample';
+      // Auto-set role — default to baseline for all grades
+      document.getElementById('cert-role').value = 'baseline';
     }
 
     // Remove the grade suffix for further parsing
