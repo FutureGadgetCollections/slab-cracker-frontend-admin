@@ -594,7 +594,7 @@
           <td><span class="badge bg-secondary">${escHtml(s.grading_company || 'PSA')} ${s.grade || '?'}</span></td>
           <td>${roleBadge(s.role)}</td>
           <td>${scanStatusBadge(s.scan_status)}</td>
-          <td class="font-monospace small text-muted" title="${escHtml(s.gcs_path || '')}">${truncPath(s.gcs_path)}</td>
+          <td class="font-monospace small text-muted" title="${escHtml(s.gcs_front_path || '')}">${truncPath(s.gcs_front_path)}</td>
           <td class="text-end pe-3 text-muted small">${s.submitted_at || '—'}</td>
         </tr>
       `).join('');
