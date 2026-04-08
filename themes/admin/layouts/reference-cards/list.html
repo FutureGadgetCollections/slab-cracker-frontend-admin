@@ -168,6 +168,12 @@
     }
   }
 
+  function scanUrl(path) {
+    if (!path) return '';
+    const backendURL = document.body.dataset.backendUrl;
+    return `${backendURL}/scans/${path}`;
+  }
+
   function renderRefs(refs) {
     document.getElementById('refs-tbody').innerHTML = refs.map(r => `
       <tr>
@@ -177,7 +183,15 @@
         <td>${escHtml(r.grading_company || 'PSA')}</td>
         <td><span class="badge bg-success">${escHtml(r.grade)}</span></td>
         <td class="font-monospace">${escHtml(r.cert_number)}</td>
-        <td>${r.scan_status === 'complete' ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-hourglass text-warning"></i>'}</td>
+        <td>
+          ${r.gcs_front_path
+            ? `<a href="${scanUrl(r.gcs_front_path)}" target="_blank" class="me-1" title="Front scan"><img src="${scanUrl(r.gcs_front_path)}" alt="Front" style="height:48px;border-radius:4px;"></a>`
+            : ''}
+          ${r.gcs_back_path
+            ? `<a href="${scanUrl(r.gcs_back_path)}" target="_blank" title="Back scan"><img src="${scanUrl(r.gcs_back_path)}" alt="Back" style="height:48px;border-radius:4px;"></a>`
+            : ''}
+          ${!r.gcs_front_path && !r.gcs_back_path ? '<i class="bi bi-hourglass text-warning"></i>' : ''}
+        </td>
         <td class="text-end pe-3">
           <span class="text-muted small">${escHtml(r.game || '')}</span>
         </td>
