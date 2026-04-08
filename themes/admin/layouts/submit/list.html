@@ -19,21 +19,23 @@
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
-            Enter a PSA cert number to auto-fill card details from PSA's database.
-            Review and adjust any fields, then catalog.
+            Paste the PSA label text to auto-fill card details, or enter fields manually.
           </p>
 
-          <!-- Cert number + Lookup -->
+          <!-- PSA label paste -->
+          <div class="mb-3">
+            <label class="form-label small fw-medium">PSA Label Text</label>
+            <input type="text" class="form-control" id="psa-label"
+                   placeholder="e.g. 2025 Pokemon JTG En Special Illustration Rare #184 Lillie's Clefairy Ex PSA 10"
+                   autocomplete="off">
+            <div class="form-text">Copy from PSA cert page, eBay listing, or slab label. Press Enter or click Parse.</div>
+          </div>
+
+          <!-- Cert number -->
           <div class="mb-3">
             <label class="form-label small fw-medium">PSA Cert Number</label>
-            <div class="input-group">
-              <input type="text" class="form-control form-control-lg font-monospace" id="cert-number"
-                     placeholder="e.g. 12345678" maxlength="20" autocomplete="off">
-              <button class="btn btn-outline-primary" type="button" id="btn-lookup" onclick="lookupCert()">
-                <i class="bi bi-search me-1"></i>Lookup
-              </button>
-            </div>
-            <div id="lookup-status" class="small mt-1 d-none"></div>
+            <input type="text" class="form-control form-control-lg font-monospace" id="cert-number"
+                   placeholder="e.g. 12345678" maxlength="20" autocomplete="off">
           </div>
 
           <hr class="my-3">
@@ -124,16 +126,6 @@
                 <option value="reference">Reference (baseline 10)</option>
                 <option value="candidate">Candidate (considering purchase)</option>
               </select>
-            </div>
-          </div>
-
-          <!-- PSA raw data (shown after lookup) -->
-          <div id="psa-raw-data" class="d-none mt-3">
-            <hr class="my-3">
-            <div class="p-2 bg-light rounded small">
-              <span class="fw-medium"><i class="bi bi-info-circle me-1"></i>PSA Data</span>
-              <span id="psa-existing-badge" class="badge bg-success ms-2 d-none">Existing card</span>
-              <div class="font-monospace mt-1 text-muted" id="psa-raw-fields"></div>
             </div>
           </div>
 
@@ -590,79 +582,111 @@
   }
 
   document.getElementById('cert-number').addEventListener('keydown', e => {
-    if (e.key === 'Enter') lookupCert();
+    if (e.key === 'Enter') submitCert();
   });
 
-  async function lookupCert() {
-    const certNum = document.getElementById('cert-number').value.trim();
-    if (!certNum || !/^\d+$/.test(certNum)) {
-      showToast('Enter a valid numeric cert number.', 'warning');
-      return;
+  document.getElementById('psa-label').addEventListener('keydown', e => {
+    if (e.key === 'Enter') parsePSALabel();
+  });
+  document.getElementById('psa-label').addEventListener('change', parsePSALabel);
+
+  // Parse a PSA label string into structured fields.
+  // Formats:
+  //   "2025 Pokemon JTG En Special Illustration Rare #184 Lillie's Clefairy Ex PSA 10"
+  //   "2023 Pokemon SWSH En-Crown Zenith #GG70 Charizard VSTAR PSA 9"
+  //   "1999 Pokemon Base Set 1st Edition Holo #4 Charizard PSA 10"
+  function parsePSALabel() {
+    const raw = document.getElementById('psa-label').value.trim();
+    if (!raw) return;
+
+    const text = raw.replace(/\s+/g, ' ');
+
+    // Extract grading company + grade from the end: "PSA 10", "BGS 9.5", "CGC 9"
+    const gradeMatch = text.match(/\b(PSA|BGS|CGC|SGC)\s+(\d+\.?\d*)\s*$/i);
+    if (gradeMatch) {
+      document.getElementById('cert-grading-company').value = gradeMatch[1].toUpperCase();
+      document.getElementById('cert-grade').value = gradeMatch[2];
+      // Auto-set role
+      const g = parseFloat(gradeMatch[2]);
+      document.getElementById('cert-role').value = g >= 9.5 ? 'reference' : 'sample';
     }
 
-    const btn = document.getElementById('btn-lookup');
-    const statusEl = document.getElementById('lookup-status');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Looking up...';
-    statusEl.classList.remove('d-none', 'text-danger', 'text-success');
-    statusEl.textContent = 'Fetching cert data from PSA...';
-    statusEl.classList.add('text-muted');
+    // Remove the grade suffix for further parsing
+    const body = text.replace(/\s+(PSA|BGS|CGC|SGC)\s+\d+\.?\d*\s*$/i, '').trim();
 
-    try {
-      const data = await api('GET', `/certs/${certNum}/lookup`);
-
-      // Populate form fields
-      if (data.game) document.getElementById('cert-game').value = data.game;
-      if (data.era) document.getElementById('cert-era').value = data.era;
-      if (data.set_code) document.getElementById('cert-set').value = data.set_code;
-      if (data.card_number) document.getElementById('cert-card-number').value = data.card_number;
-      if (data.card_name) document.getElementById('cert-card-name').value = data.card_name;
-      if (data.rarity) document.getElementById('cert-rarity').value = data.rarity;
-      if (data.treatment) document.getElementById('cert-treatment').value = data.treatment;
-      if (data.grade) document.getElementById('cert-grade').value = data.grade;
-      if (data.grading_company) document.getElementById('cert-grading-company').value = data.grading_company;
-      if (data.tcgplayer_id) document.getElementById('cert-tcgplayer-id').value = data.tcgplayer_id;
-
-      // Auto-set role based on grade
-      if (data.grade === '10' || data.grade === '9.5') {
-        document.getElementById('cert-role').value = 'reference';
-      } else {
-        document.getElementById('cert-role').value = 'sample';
-      }
-
-      // Show raw PSA data for transparency
-      const rawEl = document.getElementById('psa-raw-fields');
-      rawEl.innerHTML = [
-        data.psa_brand && `Brand: ${escHtml(data.psa_brand)}`,
-        data.psa_subject && `Subject: ${escHtml(data.psa_subject)}`,
-        data.psa_grade_text && `Grade: ${escHtml(data.psa_grade_text)}`,
-        data.psa_category && `Category: ${escHtml(data.psa_category)}`,
-        data.psa_variety && `Variety: ${escHtml(data.psa_variety)}`,
-        data.psa_year && `Year: ${escHtml(data.psa_year)}`,
-      ].filter(Boolean).join('<br>');
-      document.getElementById('psa-raw-data').classList.remove('d-none');
-
-      // Show existing card badge if found
-      const existingBadge = document.getElementById('psa-existing-badge');
-      if (data.existing_card) {
-        existingBadge.classList.remove('d-none');
-      } else {
-        existingBadge.classList.add('d-none');
-      }
-
-      statusEl.textContent = 'Lookup complete — review fields and catalog.';
-      statusEl.classList.remove('text-muted');
-      statusEl.classList.add('text-success');
-      showToast('Cert data loaded! Review and click Catalog.', 'success');
-      updatePathPreview();
-    } catch (e) {
-      statusEl.textContent = 'Lookup failed: ' + e.message;
-      statusEl.classList.remove('text-muted');
-      statusEl.classList.add('text-danger');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-search me-1"></i>Lookup';
+    // Extract card number: #184, #GG70, #025/198
+    const cardNumMatch = body.match(/#([\w\d/\-]+)/);
+    if (cardNumMatch) {
+      document.getElementById('cert-card-number').value = cardNumMatch[1];
     }
+
+    // Extract year from the start
+    const yearMatch = body.match(/^(\d{4})\b/);
+    if (yearMatch) {
+      document.getElementById('cert-era').value = yearMatch[1];
+    }
+
+    // Determine game from brand keywords
+    const upper = body.toUpperCase();
+    let game = 'other';
+    if (upper.includes('POKEMON') || upper.includes('POKÉMON')) game = 'pokemon';
+    else if (upper.includes('MAGIC') || upper.includes('MTG')) game = 'mtg';
+    else if (upper.includes('YU-GI-OH') || upper.includes('YUGIOH')) game = 'yugioh';
+    else if (upper.includes('ONE PIECE')) game = 'one-piece';
+    else if (upper.includes('BASEBALL')) game = 'sports-baseball';
+    else if (upper.includes('BASKETBALL')) game = 'sports-basketball';
+    else if (upper.includes('FOOTBALL')) game = 'sports-football';
+    document.getElementById('cert-game').value = game;
+
+    // Extract set code: the short token after the game name, before the language tag
+    // "Pokemon JTG En ..." → "jtg"
+    // "Pokemon SWSH En-Crown Zenith ..." → "swsh"
+    const setMatch = body.match(/(?:Pokemon|Pokémon|Magic[:\s]+The Gathering|MTG|Yu-Gi-Oh!?|One Piece)\s+(\w+)\b/i);
+    if (setMatch) {
+      const candidate = setMatch[1].toLowerCase();
+      // Skip if it's a language code or common word
+      if (!['the', 'base', 'set', '1st'].includes(candidate)) {
+        document.getElementById('cert-set').value = candidate;
+      }
+    }
+
+    // Card name: everything between the card number and the end (before grade was stripped)
+    if (cardNumMatch) {
+      const afterNum = body.substring(body.indexOf(cardNumMatch[0]) + cardNumMatch[0].length).trim();
+      if (afterNum) {
+        document.getElementById('cert-card-name').value = afterNum;
+      }
+    }
+
+    // Variety / rarity: text between set/lang and card number
+    if (cardNumMatch) {
+      const beforeNum = body.substring(0, body.indexOf(cardNumMatch[0])).trim();
+      // Look for known rarity keywords
+      const rarityKeywords = ['Special Illustration Rare', 'Illustration Rare', 'Hyper Rare',
+        'Secret Rare', 'Ultra Rare', 'Full Art', 'Alt Art', 'Holo', 'Reverse Holo',
+        '1st Edition', 'Shadowless'];
+      for (const kw of rarityKeywords) {
+        if (beforeNum.toUpperCase().includes(kw.toUpperCase())) {
+          document.getElementById('cert-rarity').value = kw.toLowerCase().replace(/\s+/g, '_');
+          // Map to treatment
+          const kwLower = kw.toLowerCase();
+          if (kwLower.includes('illustration') || kwLower.includes('full art') || kwLower.includes('ultra'))
+            document.getElementById('cert-treatment').value = 'full_art';
+          else if (kwLower.includes('alt art'))
+            document.getElementById('cert-treatment').value = 'alt_art';
+          else if (kwLower.includes('hyper') || kwLower.includes('secret') || kwLower.includes('gold'))
+            document.getElementById('cert-treatment').value = 'gold';
+          else if (kwLower.includes('reverse'))
+            document.getElementById('cert-treatment').value = 'reverse_holo';
+          else if (kwLower.includes('holo'))
+            document.getElementById('cert-treatment').value = 'holo';
+          break;
+        }
+      }
+    }
+
+    updatePathPreview();
+    showToast('Label parsed — review fields and adjust if needed.', 'success');
   }
 </script>
 {{ end }}
