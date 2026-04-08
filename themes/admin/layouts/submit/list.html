@@ -19,23 +19,45 @@
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
-            Paste the PSA label text to auto-fill card details, or enter fields manually.
+            Enter a cert number and click Lookup to auto-fill from PSA (requires local proxy).
+            Or paste the label text as a fallback.
           </p>
 
-          <!-- PSA label paste -->
+          <!-- Cert number + Lookup -->
           <div class="mb-3">
-            <label class="form-label small fw-medium">PSA Label Text</label>
+            <label class="form-label small fw-medium">PSA Cert Number</label>
+            <div class="input-group">
+              <input type="text" class="form-control form-control-lg font-monospace" id="cert-number"
+                     placeholder="e.g. 12345678" maxlength="20" autocomplete="off">
+              <button class="btn btn-outline-primary" type="button" id="btn-lookup" onclick="lookupCert()">
+                <i class="bi bi-search me-1"></i>Lookup
+              </button>
+            </div>
+            <div id="lookup-status" class="small mt-1 d-none"></div>
+          </div>
+
+          <!-- Scan preview (shown after proxy lookup returns images) -->
+          <div id="scan-preview" class="d-none mb-3">
+            <div class="row g-2">
+              <div class="col-6">
+                <div class="text-muted small fw-medium mb-1">Front</div>
+                <img id="scan-front-preview" class="img-fluid rounded border" alt="Front scan">
+              </div>
+              <div class="col-6">
+                <div class="text-muted small fw-medium mb-1">Back</div>
+                <img id="scan-back-preview" class="img-fluid rounded border" alt="Back scan">
+              </div>
+            </div>
+          </div>
+
+          <!-- Fallback: PSA label paste -->
+          <div class="mb-3">
+            <label class="form-label small fw-medium">
+              PSA Label Text <span class="text-muted fw-normal">(fallback if proxy not running)</span>
+            </label>
             <input type="text" class="form-control" id="psa-label"
                    placeholder="e.g. 2025 Pokemon JTG En Special Illustration Rare #184 Lillie's Clefairy Ex PSA 10"
                    autocomplete="off">
-            <div class="form-text">Copy from PSA cert page, eBay listing, or slab label. Press Enter or click Parse.</div>
-          </div>
-
-          <!-- Cert number -->
-          <div class="mb-3">
-            <label class="form-label small fw-medium">PSA Cert Number</label>
-            <input type="text" class="form-control form-control-lg font-monospace" id="cert-number"
-                   placeholder="e.g. 12345678" maxlength="20" autocomplete="off">
           </div>
 
           <hr class="my-3">
@@ -423,10 +445,43 @@
 
     try {
       const result = await api('POST', `/certs/${body.cert_number}/fetch`, body);
-      okEl.innerHTML = `<i class="bi bi-check-circle me-1"></i>Cert <strong>${escHtml(body.cert_number)}</strong> cataloged. Now upload front/back scans below.`;
-      okEl.classList.remove('d-none');
 
-      // Show upload section for this cert
+      // Auto-upload scans if we have them from the proxy
+      if (proxyScans && proxyScans.length > 0) {
+        okEl.innerHTML = `<i class="bi bi-check-circle me-1"></i>Cert <strong>${escHtml(body.cert_number)}</strong> cataloged. Uploading ${proxyScans.length} scan(s)...`;
+        okEl.classList.remove('d-none');
+
+        const formData = new FormData();
+        formData.append('game', body.game);
+        formData.append('set_code', body.set_code);
+        formData.append('card_number', body.card_number);
+        formData.append('grading_company', body.grading_company);
+        formData.append('grade', body.grade);
+
+        const sides = ['front', 'back'];
+        for (let i = 0; i < Math.min(proxyScans.length, 2); i++) {
+          const bytes = Uint8Array.from(atob(proxyScans[i].data), c => c.charCodeAt(0));
+          formData.append(sides[i], new Blob([bytes], { type: 'image/jpeg' }), `${body.cert_number}_${sides[i]}.jpg`);
+        }
+
+        const token = await firebase.auth().currentUser.getIdToken();
+        const backendURL = document.body.dataset.backendUrl;
+        const uploadResp = await fetch(`${backendURL}/certs/${body.cert_number}/upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData,
+        });
+        const uploadResult = await uploadResp.json();
+        const uploadedSides = Object.keys(uploadResult.uploaded || {}).join(' + ');
+        okEl.innerHTML = `<i class="bi bi-check-circle me-1"></i>Cert <strong>${escHtml(body.cert_number)}</strong> cataloged and <strong>${uploadedSides}</strong> scan(s) uploaded.`;
+        proxyScans = null;
+        document.getElementById('scan-preview').classList.add('d-none');
+      } else {
+        okEl.innerHTML = `<i class="bi bi-check-circle me-1"></i>Cert <strong>${escHtml(body.cert_number)}</strong> cataloged. Upload scans below if needed.`;
+        okEl.classList.remove('d-none');
+      }
+
+      // Show upload section for manual uploads
       lastCatalogedBody = body;
       document.getElementById('upload-cert-num').textContent = body.cert_number;
       document.getElementById('upload-section').classList.remove('d-none');
@@ -582,12 +637,94 @@
   }
 
   document.getElementById('cert-number').addEventListener('keydown', e => {
-    if (e.key === 'Enter') submitCert();
+    if (e.key === 'Enter') lookupCert();
   });
 
   document.getElementById('psa-label').addEventListener('keydown', e => {
     if (e.key === 'Enter') parsePSALabel();
   });
+
+  // Scans fetched from proxy, stored as blobs for upload
+  let proxyScans = null;
+
+  const PSA_PROXY_URL = 'http://localhost:3001';
+
+  async function lookupCert() {
+    const certNum = document.getElementById('cert-number').value.trim();
+    if (!certNum || !/^\d+$/.test(certNum)) {
+      showToast('Enter a valid numeric cert number.', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('btn-lookup');
+    const statusEl = document.getElementById('lookup-status');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Looking up...';
+    statusEl.classList.remove('d-none', 'text-danger', 'text-success');
+    statusEl.textContent = 'Fetching cert data from PSA via local proxy...';
+    statusEl.classList.add('text-muted');
+
+    try {
+      const resp = await fetch(`${PSA_PROXY_URL}/lookup/${certNum}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        throw new Error(err.error || resp.statusText);
+      }
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+
+      // Populate form fields
+      if (data.game) document.getElementById('cert-game').value = data.game;
+      if (data.era) document.getElementById('cert-era').value = data.era;
+      if (data.set_code) document.getElementById('cert-set').value = data.set_code;
+      if (data.card_number) document.getElementById('cert-card-number').value = data.card_number;
+      if (data.card_name) document.getElementById('cert-card-name').value = data.card_name;
+      if (data.rarity) document.getElementById('cert-rarity').value = data.rarity;
+      if (data.treatment) document.getElementById('cert-treatment').value = data.treatment;
+      if (data.grade) document.getElementById('cert-grade').value = data.grade;
+      if (data.grading_company) document.getElementById('cert-grading-company').value = data.grading_company;
+
+      // Auto-set role based on grade
+      const g = parseFloat(data.grade);
+      document.getElementById('cert-role').value = g >= 9.5 ? 'reference' : 'sample';
+
+      // Handle scan images
+      proxyScans = null;
+      const scanPreview = document.getElementById('scan-preview');
+      if (data.scans && data.scans.length > 0) {
+        proxyScans = data.scans;
+        // Show previews
+        if (data.scans[0]) {
+          document.getElementById('scan-front-preview').src =
+            'data:image/jpeg;base64,' + data.scans[0].data;
+        }
+        if (data.scans[1]) {
+          document.getElementById('scan-back-preview').src =
+            'data:image/jpeg;base64,' + data.scans[1].data;
+        }
+        scanPreview.classList.remove('d-none');
+        statusEl.textContent = `Lookup complete — ${data.scans.length} scan(s) found. Review and catalog.`;
+      } else {
+        scanPreview.classList.add('d-none');
+        statusEl.textContent = 'Lookup complete — no scans available. Review fields and catalog.';
+      }
+      statusEl.classList.remove('text-muted');
+      statusEl.classList.add('text-success');
+      showToast('Cert data loaded from PSA!', 'success');
+      updatePathPreview();
+    } catch (e) {
+      statusEl.classList.remove('text-muted');
+      statusEl.classList.add('text-danger');
+      if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+        statusEl.innerHTML = 'Local proxy not running. Start it: <code>python mcp/psa_proxy.py</code> — or paste the label text below.';
+      } else {
+        statusEl.textContent = 'Lookup failed: ' + e.message;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-search me-1"></i>Lookup';
+    }
+  }
   document.getElementById('psa-label').addEventListener('change', parsePSALabel);
 
   // Parse a PSA label string into structured fields.
