@@ -508,15 +508,6 @@
       return;
     }
 
-    // Validate card fields once (shared across batch)
-    const templateBody = getFormBody();
-    templateBody.cert_number = '0'; // placeholder for validation
-    const err = validateForm(templateBody);
-    if (err) {
-      showToast(err, 'warning');
-      return;
-    }
-
     const btn = document.getElementById('btn-batch-submit');
     btn.disabled = true;
     const progressEl = document.getElementById('batch-progress');
@@ -524,24 +515,88 @@
     const status = document.getElementById('batch-status');
     progressEl.classList.remove('d-none');
 
+    const proxyHeaders = {};
+    const proxyKey = window.PSA_PROXY_KEY;
+    if (proxyKey) proxyHeaders['X-API-Key'] = proxyKey;
+
     let done = 0;
     let failed = 0;
+    let scansUploaded = 0;
     for (const cert of certs) {
-      const body = getFormBody();
-      body.cert_number = cert;
+      status.textContent = `${done} / ${certs.length} — looking up ${cert}...`;
       try {
+        // Step 1: Lookup via proxy for metadata + scans
+        let body = getFormBody();
+        body.cert_number = cert;
+        let certScans = null;
+
+        try {
+          const proxyResp = await fetch(`${PSA_PROXY_URL}/lookup/${cert}`, { headers: proxyHeaders });
+          if (proxyResp.ok) {
+            const data = await proxyResp.json();
+            if (!data.error) {
+              // Use proxy metadata (override form fields)
+              body.game = data.game || body.game;
+              body.era = data.era || body.era;
+              body.set_code = data.set_code || body.set_code;
+              body.card_number = data.card_number || body.card_number;
+              body.card_name = data.card_name || body.card_name;
+              body.rarity = data.rarity || body.rarity;
+              body.treatment = data.treatment || body.treatment;
+              body.grade = data.grade || body.grade;
+              body.grading_company = data.grading_company || body.grading_company;
+              body.role = 'baseline';
+              if (data.scans && data.scans.length > 0) certScans = data.scans;
+            }
+          }
+        } catch (proxyErr) {
+          // Proxy not running — fall back to form fields only
+        }
+
+        // Validate minimum fields
+        const err = validateForm(body);
+        if (err) { failed++; done++; continue; }
+
+        // Step 2: Catalog cert
+        status.textContent = `${done} / ${certs.length} — cataloging ${cert}...`;
         await api('POST', `/certs/${cert}/fetch`, body);
+
+        // Step 3: Upload scans if available
+        if (certScans && certScans.length > 0) {
+          status.textContent = `${done} / ${certs.length} — uploading scans for ${cert}...`;
+          const formData = new FormData();
+          formData.append('game', body.game);
+          formData.append('set_code', body.set_code);
+          formData.append('card_number', body.card_number);
+          formData.append('grading_company', body.grading_company);
+          formData.append('grade', body.grade);
+
+          const sides = ['front', 'back'];
+          for (let i = 0; i < Math.min(certScans.length, 2); i++) {
+            const bytes = Uint8Array.from(atob(certScans[i].data), c => c.charCodeAt(0));
+            formData.append(sides[i], new Blob([bytes], { type: 'image/jpeg' }), `${cert}_${sides[i]}.jpg`);
+          }
+
+          const token = await firebase.auth().currentUser.getIdToken();
+          const backendURL = document.body.dataset.backendUrl;
+          await fetch(`${backendURL}/certs/${cert}/upload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
+          });
+          scansUploaded++;
+        }
       } catch (e) {
         failed++;
       }
       done++;
       const pct = ((done / certs.length) * 100).toFixed(0);
       bar.style.width = pct + '%';
-      status.textContent = `${done} / ${certs.length} submitted` + (failed ? ` (${failed} failed)` : '');
+      status.textContent = `${done} / ${certs.length} done` + (failed ? ` (${failed} failed)` : '') + (scansUploaded ? ` — ${scansUploaded} scans uploaded` : '');
     }
 
     btn.disabled = false;
-    showToast(`Batch complete: ${done - failed} cataloged, ${failed} failed.`, failed ? 'warning' : 'success');
+    showToast(`Batch complete: ${done - failed} cataloged, ${scansUploaded} scans uploaded, ${failed} failed.`, failed ? 'warning' : 'success');
     document.getElementById('batch-certs').value = '';
     await loadSubmissions();
     await loadCardStats(getFormBody());
