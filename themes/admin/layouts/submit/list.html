@@ -249,6 +249,9 @@
           <option value="sports-basketball">Basketball</option>
           <option value="sports-football">Football</option>
         </select>
+        <button class="btn btn-sm btn-outline-primary me-1" onclick="refreshAllPending()" id="btn-refresh-all">
+          <i class="bi bi-cloud-download me-1"></i>Fetch All Pending Scans
+        </button>
         <button class="btn btn-sm btn-outline-secondary" onclick="loadSubmissions()">
           <i class="bi bi-arrow-clockwise me-1"></i>Refresh
         </button>
@@ -642,7 +645,10 @@
           <td><span class="text-muted small">${escHtml(s.set_code || '—')}</span></td>
           <td><span class="badge bg-secondary">${escHtml(s.grading_company || 'PSA')} ${s.grade || '?'}</span></td>
           <td>${roleBadge(s.role)}</td>
-          <td>${scanStatusBadge(s.scan_status)}</td>
+          <td>
+            ${scanStatusBadge(s.scan_status)}
+            ${s.scan_status !== 'complete' ? `<button class="btn btn-outline-primary btn-sm ms-1 py-0 px-1" onclick="refreshScans('${escHtml(s.cert_number)}', '${escHtml(s.game)}', '${escHtml(s.set_code)}', '${escHtml(s.card_number)}', '${escHtml(s.grading_company)}', '${escHtml(s.grade)}', this)" title="Fetch scans from PSA"><i class="bi bi-arrow-clockwise"></i></button>` : ''}
+          </td>
           <td class="font-monospace small text-muted" title="${escHtml(s.gcs_front_path || '')}">${truncPath(s.gcs_front_path)}</td>
           <td class="text-end pe-3 text-muted small">${s.submitted_at || '—'}</td>
         </tr>
@@ -684,6 +690,90 @@
     const d = document.createElement('div');
     d.appendChild(document.createTextNode(str));
     return d.innerHTML;
+  }
+
+  // Fetch scans from proxy and upload to GCS for an existing cert
+  async function refreshScans(certNumber, game, setCode, cardNumber, gradingCompany, grade, btnEl) {
+    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+
+    const proxyHeaders = {};
+    const proxyKey = window.PSA_PROXY_KEY;
+    if (proxyKey) proxyHeaders['X-API-Key'] = proxyKey;
+
+    try {
+      const proxyResp = await fetch(`${PSA_PROXY_URL}/lookup/${certNumber}`, { headers: proxyHeaders });
+      if (!proxyResp.ok) throw new Error('Proxy request failed');
+      const data = await proxyResp.json();
+      if (data.error) throw new Error(data.error);
+      if (!data.scans || data.scans.length === 0) {
+        showToast(`No scans found on PSA for cert ${certNumber}`, 'warning');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('game', game);
+      formData.append('set_code', setCode);
+      formData.append('card_number', cardNumber);
+      formData.append('grading_company', gradingCompany);
+      formData.append('grade', grade);
+
+      const sides = ['front', 'back'];
+      for (let i = 0; i < Math.min(data.scans.length, 2); i++) {
+        const bytes = Uint8Array.from(atob(data.scans[i].data), c => c.charCodeAt(0));
+        formData.append(sides[i], new Blob([bytes], { type: 'image/jpeg' }), `${certNumber}_${sides[i]}.jpg`);
+      }
+
+      const token = await firebase.auth().currentUser.getIdToken();
+      const backendURL = document.body.dataset.backendUrl;
+      await fetch(`${backendURL}/certs/${certNumber}/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+
+      showToast(`Scans uploaded for cert ${certNumber}`, 'success');
+      await loadSubmissions();
+    } catch (e) {
+      const msg = e.message.includes('Failed to fetch') ? 'Proxy not running' : e.message;
+      showToast(`Scan refresh failed for ${certNumber}: ${msg}`, 'danger');
+    } finally {
+      if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-arrow-clockwise"></i>'; }
+    }
+  }
+
+  // Refresh scans for all pending certs
+  async function refreshAllPending() {
+    const btn = document.getElementById('btn-refresh-all');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Fetching...';
+
+    try {
+      const subs = await api('GET', '/certs');
+      const pending = (subs || []).filter(s => s.scan_status !== 'complete');
+      if (pending.length === 0) {
+        showToast('No pending scans to refresh.', 'info');
+        return;
+      }
+
+      let done = 0, succeeded = 0, failed = 0;
+      for (const s of pending) {
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${done}/${pending.length}`;
+        try {
+          await refreshScans(s.cert_number, s.game, s.set_code, s.card_number, s.grading_company, s.grade, null);
+          succeeded++;
+        } catch (e) {
+          failed++;
+        }
+        done++;
+      }
+      showToast(`Refreshed ${succeeded} of ${pending.length} certs` + (failed ? ` (${failed} failed)` : ''), succeeded ? 'success' : 'warning');
+      await loadSubmissions();
+    } catch (e) {
+      showToast('Failed to load certs: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Fetch All Pending Scans';
+    }
   }
 
   document.getElementById('cert-number').addEventListener('keydown', e => {
