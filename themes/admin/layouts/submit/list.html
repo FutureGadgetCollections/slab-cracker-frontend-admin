@@ -270,7 +270,7 @@
               <th>Set</th>
               <th>Grade</th>
               <th>Role</th>
-              <th>Scan Status</th>
+              <th>Scans</th>
               <th>GCS Path</th>
               <th class="text-end pe-3">Submitted</th>
             </tr>
@@ -646,8 +646,7 @@
           <td><span class="badge bg-secondary">${escHtml(s.grading_company || 'PSA')} ${s.grade || '?'}</span></td>
           <td>${roleBadge(s.role)}</td>
           <td>
-            ${scanStatusBadge(s.scan_status)}
-            ${s.scan_status !== 'complete' ? `<button class="btn btn-outline-primary btn-sm ms-1 py-0 px-1" onclick="refreshScans('${escHtml(s.cert_number)}', '${escHtml(s.game)}', '${escHtml(s.set_code)}', '${escHtml(s.card_number)}', '${escHtml(s.grading_company)}', '${escHtml(s.grade)}', this)" title="Fetch scans from PSA"><i class="bi bi-arrow-clockwise"></i></button>` : ''}
+            <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="refreshScans('${escHtml(s.cert_number)}', '${escHtml(s.game)}', '${escHtml(s.set_code)}', '${escHtml(s.card_number)}', '${escHtml(s.grading_company)}', '${escHtml(s.grade)}', this)" title="Fetch scans from PSA"><i class="bi bi-arrow-clockwise"></i></button>
           </td>
           <td class="font-monospace small text-muted" title="${escHtml(s.gcs_front_path || '')}">${truncPath(s.gcs_front_path)}</td>
           <td class="text-end pe-3 text-muted small">${s.submitted_at || '—'}</td>

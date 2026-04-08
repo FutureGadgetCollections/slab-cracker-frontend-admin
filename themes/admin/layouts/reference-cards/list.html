@@ -173,6 +173,8 @@
     return `${backendURL}/scans/${path}`;
   }
 
+  const PSA_PROXY_URL = (window.PSA_PROXY_URL || 'http://localhost:3001').replace(/\/$/, '');
+
   function renderRefs(refs) {
     document.getElementById('refs-tbody').innerHTML = refs.map(r => `
       <tr>
@@ -184,18 +186,68 @@
         <td class="font-monospace">${escHtml(r.cert_number)}</td>
         <td>
           ${r.gcs_front_path
-            ? `<a href="${scanUrl(r.gcs_front_path)}" target="_blank" class="me-1" title="Front scan"><img src="${scanUrl(r.gcs_front_path)}" alt="Front" style="height:48px;border-radius:4px;"></a>`
+            ? `<a href="${scanUrl(r.gcs_front_path)}" target="_blank" class="me-1" title="Front scan"><img src="${scanUrl(r.gcs_front_path)}" alt="Front" style="height:48px;border-radius:4px;" onerror="this.style.display='none'"></a>`
             : ''}
           ${r.gcs_back_path
-            ? `<a href="${scanUrl(r.gcs_back_path)}" target="_blank" title="Back scan"><img src="${scanUrl(r.gcs_back_path)}" alt="Back" style="height:48px;border-radius:4px;"></a>`
+            ? `<a href="${scanUrl(r.gcs_back_path)}" target="_blank" title="Back scan"><img src="${scanUrl(r.gcs_back_path)}" alt="Back" style="height:48px;border-radius:4px;" onerror="this.style.display='none'"></a>`
             : ''}
-          ${!r.gcs_front_path && !r.gcs_back_path ? '<i class="bi bi-hourglass text-warning"></i>' : ''}
+          <button class="btn btn-outline-primary btn-sm ms-1 py-0 px-1" onclick="refreshScans('${escHtml(r.cert_number)}', '${escHtml(r.game)}', '${escHtml(r.set_code)}', '${escHtml(r.card_number)}', '${escHtml(r.grading_company)}', '${escHtml(r.grade)}', this)" title="Fetch scans from PSA">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
         </td>
         <td class="text-end pe-3">
           <span class="text-muted small">${escHtml(r.game || '')}</span>
         </td>
       </tr>
     `).join('');
+  }
+
+  async function refreshScans(certNumber, game, setCode, cardNumber, gradingCompany, grade, btnEl) {
+    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+
+    const proxyHeaders = {};
+    const proxyKey = window.PSA_PROXY_KEY;
+    if (proxyKey) proxyHeaders['X-API-Key'] = proxyKey;
+
+    try {
+      const proxyResp = await fetch(`${PSA_PROXY_URL}/lookup/${certNumber}`, { headers: proxyHeaders });
+      if (!proxyResp.ok) throw new Error('Proxy request failed');
+      const data = await proxyResp.json();
+      if (data.error) throw new Error(data.error);
+      if (!data.scans || data.scans.length === 0) {
+        showToast(`No scans found on PSA for cert ${certNumber}`, 'warning');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('game', game);
+      formData.append('set_code', setCode);
+      formData.append('card_number', cardNumber);
+      formData.append('grading_company', gradingCompany);
+      formData.append('grade', grade);
+
+      const sides = ['front', 'back'];
+      for (let i = 0; i < Math.min(data.scans.length, 2); i++) {
+        const bytes = Uint8Array.from(atob(data.scans[i].data), c => c.charCodeAt(0));
+        formData.append(sides[i], new Blob([bytes], { type: 'image/jpeg' }), `${certNumber}_${sides[i]}.jpg`);
+      }
+
+      const token = await firebase.auth().currentUser.getIdToken();
+      const backendURL = document.body.dataset.backendUrl;
+      await fetch(`${backendURL}/certs/${certNumber}/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+
+      showToast(`Scans uploaded for cert ${certNumber}`, 'success');
+      await loadRefs();
+    } catch (e) {
+      const msg = e.message.includes('Failed to fetch') ? 'Proxy not running — start with: python mcp/psa_proxy.py' : e.message;
+      showToast(`Scan refresh failed for ${certNumber}: ${msg}`, 'danger');
+    } finally {
+      if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-arrow-clockwise"></i>'; }
+    }
   }
 
   function openCreateModal() {
