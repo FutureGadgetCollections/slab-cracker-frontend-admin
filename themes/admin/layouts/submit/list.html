@@ -660,7 +660,10 @@
     statusEl.classList.add('text-muted');
 
     try {
-      const resp = await fetch(`${PSA_PROXY_URL}/lookup/${certNum}`);
+      const proxyHeaders = {};
+      const proxyKey = window.PSA_PROXY_KEY;
+      if (proxyKey) proxyHeaders['X-API-Key'] = proxyKey;
+      const resp = await fetch(`${PSA_PROXY_URL}/lookup/${certNum}`, { headers: proxyHeaders });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }));
         throw new Error(err.error || resp.statusText);

@@ -25,9 +25,10 @@ theme = "admin"
   [params.allowed]
     emails = ""
 
-  # PSA proxy URL — maps to HUGO_PARAMS_PSA_PROXY_URL
+  # PSA proxy — maps to HUGO_PARAMS_PSA_PROXY_*
   [params.psa.proxy]
     url = "http://localhost:3001"
+    key = ""
 
   # Static data sources — maps to HUGO_PARAMS_GCS_DATA_BUCKET -> gcs.data.bucket etc.
   [params.gcs.data]
