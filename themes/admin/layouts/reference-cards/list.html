@@ -90,6 +90,9 @@
             <th>Number</th>
             <th>Grade</th>
             <th>Cert #</th>
+            <th>Centering</th>
+            <th>Corners</th>
+            <th>Edges</th>
             <th>Scans</th>
             <th class="text-end pe-3"></th>
           </tr>
@@ -185,7 +188,7 @@
 </div>
 <!-- Centering Analysis Modal -->
 <div class="modal fade" id="centeringModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-fullscreen">
     <div class="modal-content border-0 shadow">
       <div class="modal-header border-0 pb-0">
         <h5 class="modal-title"><i class="bi bi-rulers me-1"></i>Centering Analysis — <span id="centering-cert"></span></h5>
@@ -197,42 +200,343 @@
           <p class="text-muted small mt-2">Detecting edges...</p>
         </div>
         <div id="centering-result" class="d-none">
-          <div class="text-center mb-3">
-            <img id="centering-preview" class="img-fluid rounded border" alt="Centering analysis" style="max-height:500px;">
+          <!-- Front / Back tabs -->
+          <ul class="nav nav-tabs nav-fill mb-3" id="side-tabs">
+            <li class="nav-item">
+              <button class="nav-link active" data-side="front" onclick="switchSide('front')">
+                <i class="bi bi-image me-1"></i>Front
+                <span class="badge bg-secondary ms-1 d-none" id="front-badge"></span>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-side="back" onclick="switchSide('back')">
+                <i class="bi bi-image-alt me-1"></i>Back
+                <span class="badge bg-secondary ms-1 d-none" id="back-badge"></span>
+              </button>
+            </li>
+          </ul>
+
+          <div class="position-relative mb-3" id="centering-viewport" style="overflow:hidden;border:1px solid #dee2e6;border-radius:.375rem;">
+            <canvas id="centering-canvas" style="cursor:default;"></canvas>
+            <div class="position-absolute top-0 end-0 m-2 d-flex flex-column gap-1" style="z-index:2;">
+              <button class="btn btn-light btn-sm shadow-sm px-2 py-0" id="zoom-in-btn" title="Zoom in"><i class="bi bi-zoom-in"></i></button>
+              <button class="btn btn-light btn-sm shadow-sm px-2 py-0" id="zoom-out-btn" title="Zoom out"><i class="bi bi-zoom-out"></i></button>
+              <button class="btn btn-light btn-sm shadow-sm px-2 py-0" id="zoom-reset-btn" title="Reset zoom">1:1</button>
+              <hr class="my-1 border-secondary opacity-25">
+              <button class="btn btn-light btn-sm shadow-sm px-2 py-0" id="straighten-btn" title="Reset lines to straight"><i class="bi bi-border-width"></i></button>
+            </div>
           </div>
+          <div class="d-flex justify-content-center gap-3 mb-3">
+            <span class="small"><span style="display:inline-block;width:12px;height:12px;background:#ff3232;border-radius:2px;vertical-align:middle;"></span> Card edge</span>
+            <span class="small"><span style="display:inline-block;width:12px;height:12px;background:#3264ff;border-radius:2px;vertical-align:middle;"></span> Art edge</span>
+            <span class="small text-muted"><i class="bi bi-grip-vertical"></i> Drag handles to angle &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Drag empty area to pan</span>
+          </div>
+          <!-- Scores -->
           <div class="row g-2 text-center mb-3">
             <div class="col-4">
               <div class="card border p-2">
-                <div class="text-muted small">Top</div>
-                <div class="fw-bold" id="centering-top">—</div>
-                <div class="text-muted small" id="centering-top-px"></div>
+                <div class="text-muted small">L/R Centering</div>
+                <div class="fw-bold fs-5" id="score-lr">—</div>
               </div>
             </div>
             <div class="col-4">
               <div class="card border p-2">
-                <div class="text-muted small">Center</div>
-                <div class="fw-bold" id="centering-center">—</div>
-                <div class="text-muted small" id="centering-center-px"></div>
+                <div class="text-muted small">T/B Centering</div>
+                <div class="fw-bold fs-5" id="score-tb">—</div>
               </div>
             </div>
             <div class="col-4">
               <div class="card border p-2">
-                <div class="text-muted small">Bottom</div>
-                <div class="fw-bold" id="centering-bottom">—</div>
-                <div class="text-muted small" id="centering-bottom-px"></div>
+                <div class="text-muted small">Rotation</div>
+                <div class="fw-bold fs-5" id="score-rotation">—</div>
               </div>
             </div>
-          </div>
-          <div class="text-center">
-            <div class="text-muted small mb-1">Overall</div>
-            <div class="fs-4 fw-bold" id="centering-summary">—</div>
           </div>
         </div>
         <div id="centering-error" class="alert alert-danger py-2 small d-none"></div>
       </div>
       <div class="modal-footer border-0 pt-0" id="centering-actions" style="display:none">
-        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Reject</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-success btn-sm" id="centering-approve-btn">
+          <i class="bi bi-check-lg me-1"></i>Approve & Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Corner Analysis Modal -->
+<div class="modal fade" id="cornerModal" tabindex="-1">
+  <div class="modal-dialog modal-fullscreen">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title"><i class="bi bi-bounding-box me-1"></i>Corner Analysis — <span id="corner-cert"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="corner-loading" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="text-muted small mt-2">Extracting corners...</p>
+        </div>
+        <div id="corner-result" class="d-none">
+          <!-- Front / Back tabs -->
+          <ul class="nav nav-tabs nav-fill mb-3" id="corner-side-tabs">
+            <li class="nav-item">
+              <button class="nav-link active" data-side="front" onclick="switchCornerSide('front')">
+                <i class="bi bi-image me-1"></i>Front
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-side="back" onclick="switchCornerSide('back')">
+                <i class="bi bi-image-alt me-1"></i>Back
+              </button>
+            </li>
+          </ul>
+
+          <div class="row g-3" id="corner-grid">
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Top Left</div>
+                <div class="card-body p-2">
+                  <canvas id="corner-tl-canvas" class="rounded border d-block mx-auto" style="cursor:crosshair;"></canvas>
+                  <div class="d-flex justify-content-between align-items-center mt-2">
+                    <div title="How closely the card edge matches a perfect quarter circle. Higher = cleaner cut.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Cut Score</span>
+                      <span class="fw-bold ms-1" id="corner-tl-cut">—</span>
+                    </div>
+                    <div title="Minor: small white specks or light wear at the edge. Major: clearly visible whitening or chipping.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Whitening</span>
+                      <span class="ms-1">
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('tl','micro',-1)">-</button>
+                        <span class="small" id="corner-tl-micro">0</span><span class="text-muted small">&mu;</span>
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('tl','micro',1)">+</button>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1" onclick="adjWhite('tl','minor',-1)">-</button>
+                        <span class="small" id="corner-tl-minor">0</span><span class="text-muted small">m</span>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjWhite('tl','minor',1)">+</button>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-1" onclick="adjWhite('tl','major',-1)">-</button>
+                        <span class="small" id="corner-tl-major">0</span><span class="text-muted small">M</span>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjWhite('tl','major',1)">+</button>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Top Right</div>
+                <div class="card-body p-2">
+                  <canvas id="corner-tr-canvas" class="rounded border d-block mx-auto" style="cursor:crosshair;"></canvas>
+                  <div class="d-flex justify-content-between align-items-center mt-2">
+                    <div title="How closely the card edge matches a perfect quarter circle. Higher = cleaner cut.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Cut Score</span>
+                      <span class="fw-bold ms-1" id="corner-tr-cut">—</span>
+                    </div>
+                    <div title="Minor: small white specks or light wear at the edge. Major: clearly visible whitening or chipping.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Whitening</span>
+                      <span class="ms-1">
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('tr','micro',-1)">-</button>
+                        <span class="small" id="corner-tr-micro">0</span><span class="text-muted small">&mu;</span>
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('tr','micro',1)">+</button>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1" onclick="adjWhite('tr','minor',-1)">-</button>
+                        <span class="small" id="corner-tr-minor">0</span><span class="text-muted small">m</span>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjWhite('tr','minor',1)">+</button>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-1" onclick="adjWhite('tr','major',-1)">-</button>
+                        <span class="small" id="corner-tr-major">0</span><span class="text-muted small">M</span>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjWhite('tr','major',1)">+</button>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Bottom Left</div>
+                <div class="card-body p-2">
+                  <canvas id="corner-bl-canvas" class="rounded border d-block mx-auto" style="cursor:crosshair;"></canvas>
+                  <div class="d-flex justify-content-between align-items-center mt-2">
+                    <div title="How closely the card edge matches a perfect quarter circle. Higher = cleaner cut.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Cut Score</span>
+                      <span class="fw-bold ms-1" id="corner-bl-cut">—</span>
+                    </div>
+                    <div title="Minor: small white specks or light wear at the edge. Major: clearly visible whitening or chipping.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Whitening</span>
+                      <span class="ms-1">
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('bl','micro',-1)">-</button>
+                        <span class="small" id="corner-bl-micro">0</span><span class="text-muted small">&mu;</span>
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('bl','micro',1)">+</button>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1" onclick="adjWhite('bl','minor',-1)">-</button>
+                        <span class="small" id="corner-bl-minor">0</span><span class="text-muted small">m</span>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjWhite('bl','minor',1)">+</button>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-1" onclick="adjWhite('bl','major',-1)">-</button>
+                        <span class="small" id="corner-bl-major">0</span><span class="text-muted small">M</span>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjWhite('bl','major',1)">+</button>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Bottom Right</div>
+                <div class="card-body p-2">
+                  <canvas id="corner-br-canvas" class="rounded border d-block mx-auto" style="cursor:crosshair;"></canvas>
+                  <div class="d-flex justify-content-between align-items-center mt-2">
+                    <div title="How closely the card edge matches a perfect quarter circle. Higher = cleaner cut.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Cut Score</span>
+                      <span class="fw-bold ms-1" id="corner-br-cut">—</span>
+                    </div>
+                    <div title="Minor: small white specks or light wear at the edge. Major: clearly visible whitening or chipping.">
+                      <span class="text-muted small" style="cursor:help;text-decoration:underline dotted;">Whitening</span>
+                      <span class="ms-1">
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('br','micro',-1)">-</button>
+                        <span class="small" id="corner-br-micro">0</span><span class="text-muted small">&mu;</span>
+                        <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjWhite('br','micro',1)">+</button>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1" onclick="adjWhite('br','minor',-1)">-</button>
+                        <span class="small" id="corner-br-minor">0</span><span class="text-muted small">m</span>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjWhite('br','minor',1)">+</button>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-1" onclick="adjWhite('br','major',-1)">-</button>
+                        <span class="small" id="corner-br-major">0</span><span class="text-muted small">M</span>
+                        <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjWhite('br','major',1)">+</button>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex align-items-center mt-2 gap-2">
+            <button class="btn btn-outline-secondary btn-sm" id="toggle-cut-overlay" onclick="toggleCutOverlay()">
+              <i class="bi bi-eye-slash me-1"></i>Hide Cut Overlay
+            </button>
+            <span class="text-muted small"><b>Cut (front only):</b> Drag center, scroll to adjust radius. <b>Whitening:</b> &mu; = micro (barely visible), m = minor (small specks), M = major (visible damage).</span>
+          </div>
+        </div>
+        <div id="corner-error" class="alert alert-danger py-2 small d-none"></div>
+        <div id="corner-need-centering" class="alert alert-info py-2 small d-none">
+          <i class="bi bi-info-circle me-1"></i>Centering analysis must be done first so corner regions can be defined.
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0" id="corner-actions" style="display:none">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success btn-sm" id="corner-approve-btn">
+          <i class="bi bi-check-lg me-1"></i>Approve & Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Edge Analysis Modal -->
+<div class="modal fade" id="edgeModal" tabindex="-1">
+  <div class="modal-dialog modal-fullscreen">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title"><i class="bi bi-border-outer me-1"></i>Edge Analysis — <span id="edge-cert"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="edge-loading" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="text-muted small mt-2">Extracting edges...</p>
+        </div>
+        <div id="edge-result" class="d-none">
+          <ul class="nav nav-tabs nav-fill mb-3" id="edge-side-tabs">
+            <li class="nav-item"><button class="nav-link active" data-side="front" onclick="switchEdgeSide('front')"><i class="bi bi-image me-1"></i>Front</button></li>
+            <li class="nav-item"><button class="nav-link" data-side="back" onclick="switchEdgeSide('back')"><i class="bi bi-image-alt me-1"></i>Back</button></li>
+          </ul>
+          <div class="row g-3">
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Top Edge</div>
+                <div class="card-body p-2">
+                  <canvas id="edge-top-canvas" class="rounded border d-block mx-auto" style="max-width:100%;"></canvas>
+                  <div class="d-flex justify-content-center mt-2" title="Minor: small white specks. Major: clearly visible whitening or chipping.">
+                    <span class="text-muted small me-2" style="cursor:help;text-decoration:underline dotted;">Whitening:</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('top','micro',-1)">-</button>
+                    <span class="small mx-1" id="edge-top-micro">0</span><span class="text-muted small">&mu;</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('top','micro',1)">+</button>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('top','minor',-1)">-</button>
+                    <span class="small mx-1" id="edge-top-minor">0</span><span class="text-muted small">m</span>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjEdgeWhite('top','minor',1)">+</button>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('top','major',-1)">-</button>
+                    <span class="small mx-1" id="edge-top-major">0</span><span class="text-muted small">M</span>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjEdgeWhite('top','major',1)">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Bottom Edge</div>
+                <div class="card-body p-2">
+                  <canvas id="edge-bottom-canvas" class="rounded border d-block mx-auto" style="max-width:100%;"></canvas>
+                  <div class="d-flex justify-content-center mt-2" title="Minor: small white specks. Major: clearly visible whitening or chipping.">
+                    <span class="text-muted small me-2" style="cursor:help;text-decoration:underline dotted;">Whitening:</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('bottom','micro',-1)">-</button>
+                    <span class="small mx-1" id="edge-bottom-micro">0</span><span class="text-muted small">&mu;</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('bottom','micro',1)">+</button>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('bottom','minor',-1)">-</button>
+                    <span class="small mx-1" id="edge-bottom-minor">0</span><span class="text-muted small">m</span>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjEdgeWhite('bottom','minor',1)">+</button>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('bottom','major',-1)">-</button>
+                    <span class="small mx-1" id="edge-bottom-major">0</span><span class="text-muted small">M</span>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjEdgeWhite('bottom','major',1)">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Left Edge</div>
+                <div class="card-body p-2">
+                  <canvas id="edge-left-canvas" class="rounded border d-block mx-auto" style="max-width:100%;"></canvas>
+                  <div class="d-flex justify-content-center mt-2" title="Minor: small white specks. Major: clearly visible whitening or chipping.">
+                    <span class="text-muted small me-2" style="cursor:help;text-decoration:underline dotted;">Whitening:</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('left','micro',-1)">-</button>
+                    <span class="small mx-1" id="edge-left-micro">0</span><span class="text-muted small">&mu;</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('left','micro',1)">+</button>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('left','minor',-1)">-</button>
+                    <span class="small mx-1" id="edge-left-minor">0</span><span class="text-muted small">m</span>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjEdgeWhite('left','minor',1)">+</button>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('left','major',-1)">-</button>
+                    <span class="small mx-1" id="edge-left-major">0</span><span class="text-muted small">M</span>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjEdgeWhite('left','major',1)">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="card border">
+                <div class="card-header py-1 px-2 small fw-medium">Right Edge</div>
+                <div class="card-body p-2">
+                  <canvas id="edge-right-canvas" class="rounded border d-block mx-auto" style="max-width:100%;"></canvas>
+                  <div class="d-flex justify-content-center mt-2" title="Minor: small white specks. Major: clearly visible whitening or chipping.">
+                    <span class="text-muted small me-2" style="cursor:help;text-decoration:underline dotted;">Whitening:</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('right','micro',-1)">-</button>
+                    <span class="small mx-1" id="edge-right-micro">0</span><span class="text-muted small">&mu;</span>
+                    <button class="btn btn-outline-light btn-sm py-0 px-1" onclick="adjEdgeWhite('right','micro',1)">+</button>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('right','minor',-1)">-</button>
+                    <span class="small mx-1" id="edge-right-minor">0</span><span class="text-muted small">m</span>
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="adjEdgeWhite('right','minor',1)">+</button>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1 ms-2" onclick="adjEdgeWhite('right','major',-1)">-</button>
+                    <span class="small mx-1" id="edge-right-major">0</span><span class="text-muted small">M</span>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="adjEdgeWhite('right','major',1)">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-muted small mt-2 mb-0">&mu; = micro (barely visible, needs magnification). m = minor (small specks, light wear). M = major (visible chipping or edge damage).</p>
+        </div>
+        <div id="edge-error" class="alert alert-danger py-2 small d-none"></div>
+        <div id="edge-need-centering" class="alert alert-info py-2 small d-none">
+          <i class="bi bi-info-circle me-1"></i>Centering analysis must be done first so edge regions can be defined.
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0" id="edge-actions" style="display:none">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success btn-sm" id="edge-approve-btn">
           <i class="bi bi-check-lg me-1"></i>Approve & Save
         </button>
       </div>
@@ -262,6 +566,56 @@
     });
   });
 
+  // Data lookups
+  let centeringMap = {};  // cert → { front: {lr_ratio, tb_ratio}, back: {...} }
+  let cornerMap = {};     // cert → { front: [{corner, cut_score, ...}], back: [...] }
+  let edgeMap = {};       // cert → { front: [{edge, minor_whitening, ...}], back: [...] }
+
+  async function loadAnalysisData() {
+    await Promise.all([loadCenteringData(), loadCornerData(), loadEdgeData()]);
+  }
+
+  async function loadCenteringData() {
+    try {
+      const data = await api('GET', '/certs/centering-analysis');
+      centeringMap = {};
+      for (const row of data) {
+        if (!centeringMap[row.cert_number]) centeringMap[row.cert_number] = {};
+        centeringMap[row.cert_number][row.side] = row;
+      }
+    } catch (e) {
+      try {
+        const data = await api('GET', '/certs/centering');
+        centeringMap = {};
+        for (const row of data) { centeringMap[row.cert_number] = { front: { lr_ratio: row.summary } }; }
+      } catch (e2) { console.warn('Could not load centering data:', e2.message); }
+    }
+  }
+
+  async function loadCornerData() {
+    try {
+      const data = await api('GET', '/certs/corner-analysis');
+      cornerMap = {};
+      for (const row of data) {
+        if (!cornerMap[row.cert_number]) cornerMap[row.cert_number] = {};
+        if (!cornerMap[row.cert_number][row.side]) cornerMap[row.cert_number][row.side] = [];
+        cornerMap[row.cert_number][row.side].push(row);
+      }
+    } catch (e) { console.warn('Could not load corner data:', e.message); }
+  }
+
+  async function loadEdgeData() {
+    try {
+      const data = await api('GET', '/certs/edge-analysis');
+      edgeMap = {};
+      for (const row of data) {
+        if (!edgeMap[row.cert_number]) edgeMap[row.cert_number] = {};
+        if (!edgeMap[row.cert_number][row.side]) edgeMap[row.cert_number][row.side] = [];
+        edgeMap[row.cert_number][row.side].push(row);
+      }
+    } catch (e) { console.warn('Could not load edge data:', e.message); }
+  }
+
   async function loadRefs() {
     const game = document.getElementById('filter-game').value;
     const grade = document.getElementById('filter-grade').value;
@@ -279,7 +633,8 @@
     if (setCode) qs += `&set_code=${encodeURIComponent(setCode)}`;
 
     try {
-      let refs = await api('GET', `/certs?${qs}`);
+      const [refs_raw] = await Promise.all([api('GET', `/certs?${qs}`), loadAnalysisData()]);
+      let refs = refs_raw;
       document.getElementById('loading').classList.add('d-none');
 
       // Client-side filtering for grade and search (BQ endpoint doesn't support these)
@@ -318,6 +673,116 @@
     return 'bg-secondary';                   // 8.5 and below
   }
 
+  // Centering badge color:
+  //   Front: 48-52 green, 45-47/53-55 yellow, worse red (PSA 10 = 55/45 or better)
+  //   Back:  45-55 green, 40-44/56-60 yellow, worse red (PSA 10 = 75/25 but stricter for our purposes)
+  function ratioBadge(ratio, label, side) {
+    if (!ratio || ratio === 'N/A') return '';
+    const parts = ratio.split('/').map(Number);
+    if (parts.length !== 2) return '';
+    const smaller = Math.min(parts[0], parts[1]);
+    let cls;
+    if (side === 'back') {
+      cls = smaller >= 45 ? 'bg-success' : smaller >= 40 ? 'bg-warning text-dark' : 'bg-danger';
+    } else {
+      cls = smaller >= 48 ? 'bg-success' : smaller >= 45 ? 'bg-warning text-dark' : 'bg-danger';
+    }
+    return `<span class="badge ${cls}" title="${label}">${escHtml(ratio)}</span>`;
+  }
+
+  function centeringBadge(certNumber) {
+    const c = centeringMap[certNumber];
+    if (!c) return '<span class="text-muted small">—</span>';
+    let html = '';
+    for (const side of ['front', 'back']) {
+      const s = c[side];
+      if (!s) continue;
+      const label = side === 'front' ? 'F' : 'B';
+      html += `<span class="text-muted small me-1">${label}:</span>`;
+      html += ratioBadge(s.lr_ratio, `${side} L/R`, side) + ' ';
+      if (s.tb_ratio) html += ratioBadge(s.tb_ratio, `${side} T/B`, side) + ' ';
+    }
+    return html || '<span class="text-muted small">—</span>';
+  }
+
+  // Whitening defect badge color (shared logic for corners and edges):
+  //   Any major → red
+  //   2+ minor → yellow
+  //   3+ micro → yellow
+  //   Otherwise green
+  function defectBadgeCls(micro, minor, major) {
+    if (major > 0) return 'bg-danger';
+    if (minor >= 2) return 'bg-warning text-dark';
+    if (micro > 2) return 'bg-warning text-dark';
+    return 'bg-success';
+  }
+
+  function parseCornerData(cr) {
+    if (!cr.corner_data) return { micro: 0, minor: 0, major: 0 };
+    let cd = typeof cr.corner_data === 'string' ? JSON.parse(cr.corner_data) : cr.corner_data;
+    if (typeof cd === 'string') cd = JSON.parse(cd);
+    return { micro: cd.micro || 0, minor: cd.minor || 0, major: cd.major || 0 };
+  }
+
+  function cornerBadge(certNumber) {
+    const c = cornerMap[certNumber];
+    if (!c) return '<span class="text-muted small">—</span>';
+    let html = '';
+    for (const side of ['front', 'back']) {
+      const corners = c[side];
+      if (!corners || !corners.length) continue;
+      const label = side === 'front' ? 'F' : 'B';
+
+      // Cut score (front only) — show avg %, keep as-is
+      if (side === 'front') {
+        const scores = corners.map(c => c.cut_score).filter(s => s > 0);
+        if (scores.length) {
+          const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+          const cls = avg >= 80 ? 'bg-success' : avg >= 60 ? 'bg-warning text-dark' : 'bg-danger';
+          html += `<span class="text-muted small me-1">${label}:</span><span class="badge ${cls}" title="${side} avg cut score">${avg}%</span> `;
+        }
+      }
+
+      // Whitening defects
+      let totalMicro = 0, totalMinor = 0, totalMajor = 0;
+      for (const cr of corners) {
+        const d = parseCornerData(cr);
+        totalMicro += d.micro; totalMinor += d.minor; totalMajor += d.major;
+      }
+      if (corners.length) {
+        const cls = defectBadgeCls(totalMicro, totalMinor, totalMajor);
+        const text = `${totalMicro}µ ${totalMinor}m ${totalMajor}M`;
+        html += `${side !== 'front' ? '<span class="text-muted small me-1">' + label + ':</span>' : ''}<span class="badge ${cls}" title="${side} corner whitening">${text}</span> `;
+      }
+    }
+    return html || '<span class="text-muted small">—</span>';
+  }
+
+  function edgeBadge(certNumber) {
+    const e = edgeMap[certNumber];
+    if (!e) return '<span class="text-muted small">—</span>';
+    let html = '';
+    for (const side of ['front', 'back']) {
+      const edges = e[side];
+      if (!edges || !edges.length) continue;
+      const label = side === 'front' ? 'F' : 'B';
+      let totalMicro = 0;
+      const totalMinor = edges.reduce((s, e) => s + (e.minor_whitening || 0), 0);
+      const totalMajor = edges.reduce((s, e) => s + (e.major_whitening || 0), 0);
+      for (const ed of edges) {
+        if (ed.edge_data) {
+          let d = typeof ed.edge_data === 'string' ? JSON.parse(ed.edge_data) : ed.edge_data;
+          if (typeof d === 'string') d = JSON.parse(d);
+          totalMicro += d.micro || 0;
+        }
+      }
+      const cls = defectBadgeCls(totalMicro, totalMinor, totalMajor);
+      const text = `${totalMicro}µ ${totalMinor}m ${totalMajor}M`;
+      html += `<span class="text-muted small me-1">${label}:</span><span class="badge ${cls}" title="${side} edge whitening">${text}</span> `;
+    }
+    return html || '<span class="text-muted small">—</span>';
+  }
+
   function renderRefs(refs) {
     document.getElementById('refs-tbody').innerHTML = refs.map(r => `
       <tr>
@@ -326,6 +791,9 @@
         <td class="font-monospace">${escHtml(r.card_number || '—')}</td>
         <td><span class="badge ${gradeBadgeClass(r.grade)}">${escHtml(r.grading_company || 'PSA')} ${escHtml(r.grade)}</span></td>
         <td class="font-monospace">${escHtml(r.cert_number)}</td>
+        <td>${centeringBadge(r.cert_number)}</td>
+        <td>${cornerBadge(r.cert_number)}</td>
+        <td>${edgeBadge(r.cert_number)}</td>
         <td>
           ${r.gcs_front_path
             ? `<a href="${scanUrl(r.gcs_front_path)}" target="_blank" class="me-1" title="Front scan"><img src="${scanUrl(r.gcs_front_path)}" alt="Front" style="height:48px;border-radius:4px;" onerror="this.style.display='none'"></a>`
@@ -339,7 +807,7 @@
         </td>
         <td class="text-end pe-3">
           ${r.gcs_front_path
-            ? `<button class="btn btn-outline-info btn-sm py-0 px-1" onclick="analyzeCentering('${escHtml(r.cert_number)}', '${escHtml(r.gcs_front_path)}')" title="Analyze centering"><i class="bi bi-rulers"></i></button>`
+            ? `<button class="btn btn-outline-info btn-sm py-0 px-1 me-1" onclick="analyzeCentering('${escHtml(r.cert_number)}', '${escHtml(r.gcs_front_path)}', '${escHtml(r.gcs_back_path || '')}')" title="Analyze centering"><i class="bi bi-rulers"></i></button><button class="btn btn-outline-warning btn-sm py-0 px-1 me-1" onclick="analyzeCorners('${escHtml(r.cert_number)}', '${escHtml(r.gcs_front_path)}', '${escHtml(r.gcs_back_path || '')}')" title="Analyze corners"><i class="bi bi-bounding-box"></i></button><button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="analyzeEdges('${escHtml(r.cert_number)}', '${escHtml(r.gcs_front_path)}', '${escHtml(r.gcs_back_path || '')}')" title="Analyze edges"><i class="bi bi-border-outer"></i></button>`
             : '<span class="text-muted small">No scan</span>'}
         </td>
       </tr>
@@ -479,79 +947,1275 @@
     return d.innerHTML;
   }
 
-  // ── Centering Analysis ──────────────────────────────────────────────────
+  // ── Centering Analysis (8 lines, front/back, L/R + T/B + Rotation) ──────
 
   const centeringModal = new bootstrap.Modal(document.getElementById('centeringModal'));
-  let pendingCenteringData = null;
   let pendingCenteringCert = null;
+  let pendingFrontPath = '', pendingBackPath = '';
 
-  async function analyzeCentering(certNumber, gcsFrontPath) {
+  // Canvas
+  const cvs = document.getElementById('centering-canvas');
+  const ctx2d = cvs.getContext('2d');
+
+  // Per-side state: { front: {...}, back: {...} }
+  let sides = {};
+  let activeSide = 'front';
+
+  function defaultSideState() {
+    return {
+      img: null, imgW: 0, imgH: 0,
+      zoom: 1, panX: 0, panY: 0,
+      // 4 vertical lines (L/R) — each has {a, b} = top_x, bottom_x
+      vLines: {
+        card_left:  { a: 0, b: 0 }, art_left:  { a: 0, b: 0 },
+        art_right:  { a: 0, b: 0 }, card_right: { a: 0, b: 0 },
+      },
+      // 4 horizontal lines (T/B) — each has {a, b} = left_y, right_y
+      hLines: {
+        card_top:    { a: 0, b: 0 }, art_top:    { a: 0, b: 0 },
+        art_bottom:  { a: 0, b: 0 }, card_bottom: { a: 0, b: 0 },
+      },
+      pixelData: null,
+    };
+  }
+
+  function S() { return sides[activeSide] || defaultSideState(); }
+
+  // Zoom constants
+  let baseScale = 1;
+  const ZOOM_MIN = 1, ZOOM_MAX = 6, ZOOM_STEP = 1.25;
+  const HANDLE_RADIUS = 7, GRAB_LINE_TOL = 6;
+
+  // Colors / labels
+  const V_COLORS = { card_left: '#ff3232', art_left: '#3264ff', art_right: '#3264ff', card_right: '#ff3232' };
+  const V_LABELS = { card_left: 'Card L', art_left: 'Art L', art_right: 'Art R', card_right: 'Card R' };
+  const H_COLORS = { card_top: '#ff3232', art_top: '#3264ff', art_bottom: '#3264ff', card_bottom: '#ff3232' };
+  const H_LABELS = { card_top: 'Card T', art_top: 'Art T', art_bottom: 'Art B', card_bottom: 'Card B' };
+
+  let drag = null;
+
+  // ── Coordinate helpers ──────────────────────────────────────────────────
+
+  function effScale() { return baseScale * S().zoom; }
+  function imgToCanvas(ix, iy) { const s = effScale(); return { x: ix * s + S().panX, y: iy * s + S().panY }; }
+  function canvasToImg(cx, cy) { const s = effScale(); return { x: (cx - S().panX) / s, y: (cy - S().panY) / s }; }
+  function eventToCanvas(e) {
+    const r = cvs.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+    return { x: cx, y: cy };
+  }
+  // Vertical line x at image-space y: interpolate a→b over image height
+  function vLineX(line, iy) { return line.a + (line.b - line.a) * (iy / S().imgH); }
+  // Horizontal line y at image-space x: interpolate a→b over image width
+  function hLineY(line, ix) { return line.a + (line.b - line.a) * (ix / S().imgW); }
+
+  // ── Client-side edge detection ──────────────────────────────────────────
+  //
+  // Reference positions from cert 121133275 (best centered card).
+  // PSA slabs are standardized so edges land at nearly identical fractions
+  // across all scans. We search a narrow window around each reference
+  // position for the strongest gradient, rather than scanning broad zones.
+
+  const CONFIRM_PX = 3;
+  const SEARCH_WINDOW = 0.025; // ±2.5% of dimension around reference
+
+  // Reference edge positions as fractions of image width/height
+  // Derived from cert 121133275 (1432×2400, front)
+  const REF = {
+    // Vertical lines (fraction of width)
+    card_left:  0.112, art_left:  0.142,
+    art_right:  0.859, card_right: 0.889,
+    // Horizontal lines (fraction of height)
+    card_top:   0.272, art_top:    0.290,
+    art_bottom: 0.904, card_bottom: 0.922,
+  };
+
+  function getRowBrightness(data, y, w) {
+    const row = new Uint8Array(w); const off = y * w * 4;
+    for (let x = 0; x < w; x++) { const i = off + x * 4; row[x] = Math.round(0.299*data[i]+0.587*data[i+1]+0.114*data[i+2]); }
+    return row;
+  }
+  function getColBrightness(data, x, w, h) {
+    const col = new Uint8Array(h);
+    for (let y = 0; y < h; y++) { const i = (y*w+x)*4; col[y] = Math.round(0.299*data[i]+0.587*data[i+1]+0.114*data[i+2]); }
+    return col;
+  }
+
+  // Find the strongest gradient edge in a narrow window around the expected position.
+  // direction: 'fwd' scans left→right or top→bottom, 'rev' scans the opposite.
+  function findEdgeNear(arr, expected, halfW, thr, direction) {
+    const lo = Math.max(0, expected - halfW);
+    const hi = Math.min(arr.length - 1, expected + halfW);
+    if (direction === 'fwd') {
+      let prev = arr[lo], run = 0;
+      for (let i = lo+1; i <= hi; i++) {
+        if (Math.abs(arr[i] - prev) >= thr) { run++; if (run >= CONFIRM_PX) return i - CONFIRM_PX; }
+        else run = 0;
+        prev = arr[i];
+      }
+    } else {
+      let prev = arr[hi], run = 0;
+      for (let i = hi-1; i >= lo; i--) {
+        if (Math.abs(arr[i] - prev) >= thr) { run++; if (run >= CONFIRM_PX) return i + CONFIRM_PX; }
+        else run = 0;
+        prev = arr[i];
+      }
+    }
+    return null;
+  }
+
+  function autoDetectEdges(data, w, h) {
+    const hw = Math.round(w * SEARCH_WINDOW); // half-window in pixels (horizontal)
+    const hh = Math.round(h * SEARCH_WINDOW); // half-window in pixels (vertical)
+
+    // L/R edges: scan center row
+    const midRow = getRowBrightness(data, Math.round(h * 0.5), w);
+    // Card edges use higher threshold (40), art edges use lower (25)
+    const cl = findEdgeNear(midRow, Math.round(w * REF.card_left),  hw, 40, 'fwd') ?? Math.round(w * REF.card_left);
+    const al = findEdgeNear(midRow, Math.round(w * REF.art_left),   hw, 25, 'fwd') ?? Math.round(w * REF.art_left);
+    const ar = findEdgeNear(midRow, Math.round(w * REF.art_right),  hw, 25, 'rev') ?? Math.round(w * REF.art_right);
+    const cr = findEdgeNear(midRow, Math.round(w * REF.card_right), hw, 40, 'rev') ?? Math.round(w * REF.card_right);
+
+    // T/B edges: scan center column
+    const midCol = getColBrightness(data, Math.round(w * 0.5), w, h);
+    const ct = findEdgeNear(midCol, Math.round(h * REF.card_top),    hh, 40, 'fwd') ?? Math.round(h * REF.card_top);
+    const at = findEdgeNear(midCol, Math.round(h * REF.art_top),     hh, 25, 'fwd') ?? Math.round(h * REF.art_top);
+    const ab = findEdgeNear(midCol, Math.round(h * REF.art_bottom),  hh, 25, 'rev') ?? Math.round(h * REF.art_bottom);
+    const cb = findEdgeNear(midCol, Math.round(h * REF.card_bottom), hh, 40, 'rev') ?? Math.round(h * REF.card_bottom);
+
+    // Ensure art lines are always between their card lines (toward center)
+    const midX = w / 2, midY = h / 2;
+    const clampArt = (art, card, center) => {
+      // Art must be between card and center
+      if (center > card) return Math.max(art, card); // left/top side: art >= card
+      else return Math.min(art, card);                // right/bottom side: art <= card
+    };
+    const alc = clampArt(al, cl, midX);
+    const arc = clampArt(ar, cr, midX);
+    const atc = clampArt(at, ct, midY);
+    const abc = clampArt(ab, cb, midY);
+
+    return {
+      vLines: {
+        card_left:  { a: cl, b: cl },  art_left:  { a: alc, b: alc },
+        art_right:  { a: arc, b: arc }, card_right: { a: cr, b: cr },
+      },
+      hLines: {
+        card_top:    { a: ct, b: ct },  art_top:    { a: atc, b: atc },
+        art_bottom:  { a: abc, b: abc }, card_bottom: { a: cb, b: cb },
+      },
+    };
+  }
+
+  // ── Drawing ─────────────────────────────────────────────────────────────
+
+  function sizeCanvas() {
+    const vp = document.getElementById('centering-viewport');
+    const vpW = vp.clientWidth;
+    const vpH = Math.min(window.innerHeight * 0.75, 900);
+    vp.style.height = vpH + 'px';
+    if (cvs.width !== vpW || cvs.height !== vpH) { cvs.width = vpW; cvs.height = vpH; }
+    baseScale = Math.min(vpW / S().imgW, vpH / S().imgH, 1);
+  }
+
+  function drawCanvas() {
+    const st = S(); if (!st.img) return;
+    sizeCanvas();
+    const s = effScale();
+    ctx2d.clearRect(0, 0, cvs.width, cvs.height);
+    ctx2d.save(); ctx2d.translate(st.panX, st.panY); ctx2d.scale(s, s);
+    ctx2d.drawImage(st.img, 0, 0);
+    ctx2d.restore();
+
+    const lineW = Math.max(2, Math.round(s * 1.5));
+
+    // Vertical lines
+    for (const [key, line] of Object.entries(st.vLines)) {
+      const pA = imgToCanvas(line.a, 0), pB = imgToCanvas(line.b, st.imgH);
+      ctx2d.strokeStyle = V_COLORS[key]; ctx2d.lineWidth = lineW;
+      ctx2d.beginPath(); ctx2d.moveTo(pA.x, pA.y); ctx2d.lineTo(pB.x, pB.y); ctx2d.stroke();
+      drawHandle(pA, V_COLORS[key]); drawHandle(pB, V_COLORS[key]);
+      drawLabel(pA, V_LABELS[key], V_COLORS[key]);
+    }
+
+    // Horizontal lines
+    for (const [key, line] of Object.entries(st.hLines)) {
+      const pA = imgToCanvas(0, line.a), pB = imgToCanvas(st.imgW, line.b);
+      ctx2d.strokeStyle = H_COLORS[key]; ctx2d.lineWidth = lineW;
+      ctx2d.beginPath(); ctx2d.moveTo(pA.x, pA.y); ctx2d.lineTo(pB.x, pB.y); ctx2d.stroke();
+      drawHandle(pA, H_COLORS[key]); drawHandle(pB, H_COLORS[key]);
+      drawLabel(pB, H_LABELS[key], H_COLORS[key], true);
+    }
+  }
+
+  function drawHandle(p, color) {
+    ctx2d.fillStyle = color;
+    ctx2d.beginPath(); ctx2d.arc(p.x, p.y, HANDLE_RADIUS, 0, Math.PI*2); ctx2d.fill();
+    ctx2d.strokeStyle = '#fff'; ctx2d.lineWidth = 1.5;
+    ctx2d.beginPath(); ctx2d.arc(p.x, p.y, HANDLE_RADIUS, 0, Math.PI*2); ctx2d.stroke();
+  }
+
+  function drawLabel(p, text, color, right) {
+    ctx2d.font = 'bold 11px sans-serif'; ctx2d.fillStyle = '#fff';
+    ctx2d.strokeStyle = 'rgba(0,0,0,0.6)'; ctx2d.lineWidth = 3;
+    const lx = right ? p.x - ctx2d.measureText(text).width - HANDLE_RADIUS - 4 : p.x + HANDLE_RADIUS + 4;
+    const ly = p.y + 4;
+    ctx2d.strokeText(text, lx, ly); ctx2d.fillText(text, lx, ly);
+  }
+
+  // ── Scoring ─────────────────────────────────────────────────────────────
+
+  function computeScores() {
+    const st = S();
+    // L/R centering at vertical center of card
+    const midY = st.imgH * 0.5;
+    const clx = vLineX(st.vLines.card_left, midY), alx = vLineX(st.vLines.art_left, midY);
+    const arx = vLineX(st.vLines.art_right, midY), crx = vLineX(st.vLines.card_right, midY);
+    const leftB = alx - clx, rightB = crx - arx, totalLR = leftB + rightB;
+    let lrRatio = 'N/A';
+    if (totalLR > 0) {
+      const lp = Math.round(leftB / totalLR * 100), rp = 100 - lp;
+      lrRatio = `${lp}/${rp}`;
+    }
+
+    // T/B centering at horizontal center of card
+    const midX = st.imgW * 0.5;
+    const cty = hLineY(st.hLines.card_top, midX), aty = hLineY(st.hLines.art_top, midX);
+    const aby = hLineY(st.hLines.art_bottom, midX), cby = hLineY(st.hLines.card_bottom, midX);
+    const topB = aty - cty, botB = cby - aby, totalTB = topB + botB;
+    let tbRatio = 'N/A';
+    if (totalTB > 0) {
+      const tp = Math.round(topB / totalTB * 100), bp = 100 - tp;
+      tbRatio = `${tp}/${bp}`;
+    }
+
+    // Rotation: average angle of vertical card edge lines
+    const angleL = Math.atan2(st.vLines.card_left.b - st.vLines.card_left.a, st.imgH) * (180 / Math.PI);
+    const angleR = Math.atan2(st.vLines.card_right.b - st.vLines.card_right.a, st.imgH) * (180 / Math.PI);
+    const rotationDeg = Math.round(((angleL + angleR) / 2) * 100) / 100;
+
+    // Update UI
+    document.getElementById('score-lr').textContent = lrRatio;
+    document.getElementById('score-tb').textContent = tbRatio;
+    document.getElementById('score-rotation').textContent = Math.abs(rotationDeg) < 0.01 ? '0°' : `${rotationDeg > 0 ? '+' : ''}${rotationDeg}°`;
+
+    // Update side tab badge
+    const badge = document.getElementById(`${activeSide}-badge`);
+    if (badge && lrRatio !== 'N/A') {
+      badge.textContent = `${lrRatio} | ${tbRatio}`;
+      badge.classList.remove('d-none');
+    }
+
+    return { lrRatio, tbRatio, rotationDeg };
+  }
+
+  // ── Hit testing (vertical + horizontal lines) ──────────────────────────
+
+  function distToSeg(px, py, x1, y1, x2, y2) {
+    const dx = x2-x1, dy = y2-y1, lenSq = dx*dx+dy*dy;
+    if (lenSq === 0) return Math.hypot(px-x1, py-y1);
+    let t = ((px-x1)*dx + (py-y1)*dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px-(x1+t*dx), py-(y1+t*dy));
+  }
+
+  function hitTest(cx, cy) {
+    const st = S();
+    // Vertical line handles & bodies
+    for (const [key, line] of Object.entries(st.vLines)) {
+      const pA = imgToCanvas(line.a, 0), pB = imgToCanvas(line.b, st.imgH);
+      if (Math.hypot(cx-pA.x, cy-pA.y) <= HANDLE_RADIUS+3) return { group: 'v', key, end: 'a' };
+      if (Math.hypot(cx-pB.x, cy-pB.y) <= HANDLE_RADIUS+3) return { group: 'v', key, end: 'b' };
+    }
+    for (const [key, line] of Object.entries(st.hLines)) {
+      const pA = imgToCanvas(0, line.a), pB = imgToCanvas(st.imgW, line.b);
+      if (Math.hypot(cx-pA.x, cy-pA.y) <= HANDLE_RADIUS+3) return { group: 'h', key, end: 'a' };
+      if (Math.hypot(cx-pB.x, cy-pB.y) <= HANDLE_RADIUS+3) return { group: 'h', key, end: 'b' };
+    }
+    // Line bodies
+    for (const [key, line] of Object.entries(st.vLines)) {
+      const pA = imgToCanvas(line.a, 0), pB = imgToCanvas(line.b, st.imgH);
+      if (distToSeg(cx, cy, pA.x, pA.y, pB.x, pB.y) <= GRAB_LINE_TOL) return { group: 'v', key, end: null };
+    }
+    for (const [key, line] of Object.entries(st.hLines)) {
+      const pA = imgToCanvas(0, line.a), pB = imgToCanvas(st.imgW, line.b);
+      if (distToSeg(cx, cy, pA.x, pA.y, pB.x, pB.y) <= GRAB_LINE_TOL) return { group: 'h', key, end: null };
+    }
+    return null;
+  }
+
+  // ── Mouse interaction ───────────────────────────────────────────────────
+
+  function startDrag(cx, cy) {
+    const hit = hitTest(cx, cy);
+    const st = S();
+    if (hit && hit.end) {
+      drag = { ...hit, type: 'handle' };
+      cvs.style.cursor = 'grabbing';
+      return true;
+    } else if (hit && !hit.end) {
+      const img = canvasToImg(cx, cy);
+      const lines = hit.group === 'v' ? st.vLines : st.hLines;
+      drag = { ...hit, type: 'line', offA: lines[hit.key].a - (hit.group === 'v' ? img.x : img.y), offB: lines[hit.key].b - (hit.group === 'v' ? img.x : img.y) };
+      cvs.style.cursor = hit.group === 'v' ? 'col-resize' : 'row-resize';
+      return true;
+    }
+    // Pan
+    drag = { type: 'pan', sx: st.panX, sy: st.panY, cx0: cx, cy0: cy };
+    cvs.style.cursor = 'grabbing';
+    return true;
+  }
+
+  function moveDrag(cx, cy) {
+    if (!drag) { cvs.style.cursor = hitTest(cx, cy) ? 'pointer' : 'default'; return; }
+    const st = S(), img = canvasToImg(cx, cy);
+    if (drag.type === 'handle') {
+      const lines = drag.group === 'v' ? st.vLines : st.hLines;
+      const maxVal = drag.group === 'v' ? st.imgW : st.imgH;
+      const val = drag.group === 'v' ? img.x : img.y;
+      lines[drag.key][drag.end] = Math.max(0, Math.min(maxVal, val));
+    } else if (drag.type === 'line') {
+      const lines = drag.group === 'v' ? st.vLines : st.hLines;
+      const maxVal = drag.group === 'v' ? st.imgW : st.imgH;
+      const val = drag.group === 'v' ? img.x : img.y;
+      lines[drag.key].a = Math.max(0, Math.min(maxVal, val + drag.offA));
+      lines[drag.key].b = Math.max(0, Math.min(maxVal, val + drag.offB));
+    } else if (drag.type === 'pan') {
+      st.panX = drag.sx + (cx - drag.cx0);
+      st.panY = drag.sy + (cy - drag.cy0);
+    }
+    drawCanvas(); computeScores();
+  }
+
+  function endDrag() { if (drag) { drag = null; cvs.style.cursor = 'default'; } }
+
+  cvs.addEventListener('mousedown', e => { const p = eventToCanvas(e); startDrag(p.x, p.y); e.preventDefault(); });
+  cvs.addEventListener('mousemove', e => { moveDrag(...[eventToCanvas(e)].map(p => [p.x, p.y])[0]); });
+  window.addEventListener('mouseup', endDrag);
+
+  cvs.addEventListener('touchstart', e => { e.preventDefault(); const p = eventToCanvas(e); startDrag(p.x, p.y); }, { passive: false });
+  cvs.addEventListener('touchmove', e => { e.preventDefault(); const p = eventToCanvas(e); moveDrag(p.x, p.y); }, { passive: false });
+  cvs.addEventListener('touchend', endDrag);
+
+  // ── Zoom ────────────────────────────────────────────────────────────────
+
+  function applyZoom(newZoom, cx, cy) {
+    const st = S(), oldS = effScale();
+    st.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom));
+    const newS = effScale();
+    st.panX = cx - (cx - st.panX) * (newS / oldS);
+    st.panY = cy - (cy - st.panY) * (newS / oldS);
+    drawCanvas();
+  }
+
+  cvs.addEventListener('wheel', e => { e.preventDefault(); const p = eventToCanvas(e); applyZoom(S().zoom * (e.deltaY < 0 ? ZOOM_STEP : 1/ZOOM_STEP), p.x, p.y); }, { passive: false });
+  document.getElementById('zoom-in-btn').addEventListener('click', () => applyZoom(S().zoom * ZOOM_STEP, cvs.width/2, cvs.height/2));
+  document.getElementById('zoom-out-btn').addEventListener('click', () => applyZoom(S().zoom / ZOOM_STEP, cvs.width/2, cvs.height/2));
+  document.getElementById('zoom-reset-btn').addEventListener('click', () => { resetView(); drawCanvas(); });
+  document.getElementById('straighten-btn').addEventListener('click', () => {
+    const st = S();
+    for (const l of Object.values(st.vLines)) { const avg = Math.round((l.a+l.b)/2); l.a = avg; l.b = avg; }
+    for (const l of Object.values(st.hLines)) { const avg = Math.round((l.a+l.b)/2); l.a = avg; l.b = avg; }
+    drawCanvas(); computeScores();
+  });
+
+  function resetView() {
+    const st = S(); st.zoom = 1; sizeCanvas();
+    const fw = st.imgW * baseScale, fh = st.imgH * baseScale;
+    st.panX = (cvs.width - fw) / 2; st.panY = (cvs.height - fh) / 2;
+  }
+
+  // ── Side switching ──────────────────────────────────────────────────────
+
+  function switchSide(side) {
+    activeSide = side;
+    document.querySelectorAll('#side-tabs .nav-link').forEach(el => el.classList.toggle('active', el.dataset.side === side));
+    const st = S();
+    if (st.img) { sizeCanvas(); drawCanvas(); computeScores(); }
+    else { ctx2d.clearRect(0, 0, cvs.width, cvs.height); document.getElementById('score-lr').textContent = '—'; document.getElementById('score-tb').textContent = '—'; document.getElementById('score-rotation').textContent = '—'; }
+  }
+
+  // ── Load and analyze ────────────────────────────────────────────────────
+
+  async function loadSideImage(side, gcsPath) {
+    if (!gcsPath) return;
+    const st = sides[side] = defaultSideState();
+    const backendURL = document.body.dataset.backendUrl;
+
+    st.img = new Image();
+    st.img.crossOrigin = 'anonymous';
+    await new Promise((resolve, reject) => { st.img.onload = resolve; st.img.onerror = () => reject(new Error(`Failed to load ${side} scan`)); st.img.src = `${backendURL}/scans/${gcsPath}`; });
+
+    st.imgW = st.img.naturalWidth; st.imgH = st.img.naturalHeight;
+
+    // Try saved analysis first
+    let usedSaved = false;
+    try {
+      const saved = await api('GET', `/certs/${pendingCenteringCert}/centering-analysis`);
+      if (saved && saved[side] && saved[side].line_data) {
+        const ld = typeof saved[side].line_data === 'string' ? JSON.parse(saved[side].line_data) : saved[side].line_data;
+        if (ld.vLines && ld.hLines) {
+          st.vLines = ld.vLines; st.hLines = ld.hLines;
+          usedSaved = true;
+        }
+      }
+    } catch (e) { /* no saved data */ }
+
+    if (!usedSaved) {
+      // Auto-detect edges
+      const offscreen = document.createElement('canvas');
+      offscreen.width = st.imgW; offscreen.height = st.imgH;
+      const offCtx = offscreen.getContext('2d');
+      offCtx.drawImage(st.img, 0, 0);
+      st.pixelData = offCtx.getImageData(0, 0, st.imgW, st.imgH).data;
+      const detected = autoDetectEdges(st.pixelData, st.imgW, st.imgH);
+      st.vLines = detected.vLines; st.hLines = detected.hLines;
+    }
+  }
+
+  async function analyzeCentering(certNumber, gcsFrontPath, gcsBackPath) {
     pendingCenteringCert = certNumber;
-    pendingCenteringData = null;
+    pendingFrontPath = gcsFrontPath;
+    pendingBackPath = gcsBackPath;
+    sides = {};
+    activeSide = 'front';
 
     document.getElementById('centering-cert').textContent = certNumber;
     document.getElementById('centering-loading').classList.remove('d-none');
     document.getElementById('centering-result').classList.add('d-none');
     document.getElementById('centering-error').classList.add('d-none');
     document.getElementById('centering-actions').style.display = 'none';
+    document.querySelectorAll('#side-tabs .nav-link').forEach(el => el.classList.toggle('active', el.dataset.side === 'front'));
+    document.getElementById('front-badge').classList.add('d-none');
+    document.getElementById('back-badge').classList.add('d-none');
     centeringModal.show();
 
-    const proxyHeaders = {};
-    const proxyKey = window.PSA_PROXY_KEY;
-    if (proxyKey) proxyHeaders['X-API-Key'] = proxyKey;
-
-    const backendURL = document.body.dataset.backendUrl;
-    const scanUrl = `${backendURL}/scans/${gcsFrontPath}`;
-
     try {
-      const resp = await fetch(`${PSA_PROXY_URL}/analyze?scan_url=${encodeURIComponent(scanUrl)}`, { headers: proxyHeaders });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: resp.statusText }));
-        throw new Error(err.error || resp.statusText);
-      }
-      const data = await resp.json();
-      pendingCenteringData = data;
+      // Load front (required) and back (optional) in parallel
+      const promises = [loadSideImage('front', gcsFrontPath)];
+      if (gcsBackPath) promises.push(loadSideImage('back', gcsBackPath));
+      await Promise.all(promises);
 
-      // Show annotated image
-      document.getElementById('centering-preview').src = 'data:image/png;base64,' + data.annotated_image;
+      // Show back tab only if back scan exists
+      const backTab = document.querySelector('#side-tabs [data-side="back"]').parentElement;
+      backTab.style.display = gcsBackPath ? '' : 'none';
 
-      // Show measurements
-      for (const pos of ['top', 'center', 'bottom']) {
-        const m = data.measurements[pos];
-        document.getElementById(`centering-${pos}`).textContent = m.ratio;
-        document.getElementById(`centering-${pos}-px`).textContent =
-          m.left_border_px != null ? `${m.left_border_px}px / ${m.right_border_px}px` : '';
-      }
-      document.getElementById('centering-summary').textContent = data.summary;
-
-      document.getElementById('centering-loading').classList.add('d-none');
       document.getElementById('centering-result').classList.remove('d-none');
+      resetView(); drawCanvas(); computeScores();
+      document.getElementById('centering-loading').classList.add('d-none');
       document.getElementById('centering-actions').style.display = '';
     } catch (e) {
       document.getElementById('centering-loading').classList.add('d-none');
       const errEl = document.getElementById('centering-error');
-      errEl.textContent = e.message.includes('Failed to fetch')
-        ? 'Proxy not running — start with: python mcp/psa_proxy.py'
-        : 'Analysis failed: ' + e.message;
+      errEl.textContent = 'Analysis failed: ' + e.message;
       errEl.classList.remove('d-none');
     }
   }
 
+  document.getElementById('centeringModal').addEventListener('shown.bs.modal', () => { if (S().img) drawCanvas(); });
+
+  // ── Approve & save ──────────────────────────────────────────────────────
+
   document.getElementById('centering-approve-btn').addEventListener('click', async () => {
-    if (!pendingCenteringData || !pendingCenteringCert) return;
+    if (!pendingCenteringCert) return;
     const btn = document.getElementById('centering-approve-btn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
 
     try {
-      await api('POST', `/certs/${pendingCenteringCert}/centering`, {
-        measurements: pendingCenteringData.measurements,
-        summary: pendingCenteringData.summary,
-      });
-      showToast(`Centering saved for cert ${pendingCenteringCert}: ${pendingCenteringData.summary}`, 'success');
+      // Save each side that has been loaded
+      for (const side of ['front', 'back']) {
+        const st = sides[side];
+        if (!st || !st.img) continue;
+        // Compute scores for this side
+        const prevSide = activeSide;
+        activeSide = side;
+        const { lrRatio, tbRatio, rotationDeg } = computeScores();
+        activeSide = prevSide;
+
+        await api('POST', `/certs/${pendingCenteringCert}/centering-analysis`, {
+          side,
+          lr_ratio: lrRatio,
+          tb_ratio: tbRatio,
+          rotation_deg: rotationDeg,
+          line_data: JSON.stringify({ vLines: st.vLines, hLines: st.hLines }),
+          image_width: st.imgW,
+          image_height: st.imgH,
+        });
+      }
+      showToast(`Centering saved for cert ${pendingCenteringCert}`, 'success');
       centeringModal.hide();
+      await loadAnalysisData();
+      const tbody = document.getElementById('refs-tbody');
+      if (tbody.children.length) loadRefs();
     } catch (e) {
       showToast('Failed to save centering: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Approve & Save';
+    }
+  });
+
+  // ── Corner Analysis ─────────────────────────────────────────────────────
+
+  const cornerModal = new bootstrap.Modal(document.getElementById('cornerModal'));
+  let cornerCert = null;
+  let cornerSides = {};  // { front: { img, imgW, imgH, pixelData, corners: {tl,...} }, back: ... }
+  let activeCornerSide = 'front';
+  let cornerDrag = null; // { id, type: 'center' }
+  let showCutOverlay = true;
+
+  const CORNER_IDS = ['tl', 'tr', 'bl', 'br'];
+  const CORNER_PAD = 20;
+
+  // Which quadrant each corner's arc occupies (start angle, end angle in radians)
+  const ARC_ANGLES = {
+    tl: { start: Math.PI, end: Math.PI * 1.5 },       // 180° → 270°
+    tr: { start: Math.PI * 1.5, end: Math.PI * 2 },    // 270° → 360°
+    bl: { start: Math.PI * 0.5, end: Math.PI },         // 90° → 180°
+    br: { start: 0, end: Math.PI * 0.5 },               // 0° → 90°
+  };
+
+  function getCornerBoxes(lineData, imgW, imgH) {
+    const v = lineData.vLines, h = lineData.hLines;
+    const cl = (v.card_left.a + v.card_left.b) / 2;
+    const al = (v.art_left.a + v.art_left.b) / 2;
+    const ar = (v.art_right.a + v.art_right.b) / 2;
+    const cr = (v.card_right.a + v.card_right.b) / 2;
+    const ct = (h.card_top.a + h.card_top.b) / 2;
+    const at = (h.art_top.a + h.art_top.b) / 2;
+    const ab = (h.art_bottom.a + h.art_bottom.b) / 2;
+    const cb = (h.card_bottom.a + h.card_bottom.b) / 2;
+
+    return {
+      tl: { x: Math.max(0, cl - CORNER_PAD), y: Math.max(0, ct - CORNER_PAD), w: al - cl + CORNER_PAD * 2, h: at - ct + CORNER_PAD * 2 },
+      tr: { x: ar - CORNER_PAD, y: Math.max(0, ct - CORNER_PAD), w: cr - ar + CORNER_PAD * 2, h: at - ct + CORNER_PAD * 2 },
+      bl: { x: Math.max(0, cl - CORNER_PAD), y: ab - CORNER_PAD, w: al - cl + CORNER_PAD * 2, h: cb - ab + CORNER_PAD * 2 },
+      br: { x: ar - CORNER_PAD, y: ab - CORNER_PAD, w: cr - ar + CORNER_PAD * 2, h: cb - ab + CORNER_PAD * 2 },
+    };
+  }
+
+  // Default arc center position (in local canvas coords) for each corner
+  function defaultArcCenter(id, cw, ch) {
+    const m = { tl: { x: cw * 0.65, y: ch * 0.65 }, tr: { x: cw * 0.35, y: ch * 0.65 },
+                bl: { x: cw * 0.65, y: ch * 0.35 }, br: { x: cw * 0.35, y: ch * 0.35 } };
+    return m[id];
+  }
+  function defaultArcRadius(cw, ch) { return Math.min(cw, ch) * 0.45; }
+
+  // ── Cut score: overlap of card edge with reference arc ─────────────────
+
+  function computeCutScore(pixelData, box, imgW, id, arc, scale) {
+    // Detect edge pixels in the corner region
+    const bx = Math.round(box.x), by = Math.round(box.y);
+    const bw = Math.round(box.w), bh = Math.round(box.h);
+    const cx = arc.cx / scale, cy = arc.cy / scale, r = arc.r / scale; // convert to image coords
+    const angles = ARC_ANGLES[id];
+
+    // Sample points along the reference arc and check if edge pixels are nearby
+    const SAMPLES = 60;
+    let matches = 0;
+    for (let i = 0; i <= SAMPLES; i++) {
+      const a = angles.start + (angles.end - angles.start) * (i / SAMPLES);
+      const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a);
+      const gx = Math.round(bx + px), gy = Math.round(by + py);
+      if (gx < 1 || gx >= imgW - 1 || gy < 1) continue;
+      // Check gradient magnitude at this point
+      const idx = (gy * imgW + gx) * 4;
+      const b = (p) => 0.299 * pixelData[p] + 0.587 * pixelData[p+1] + 0.114 * pixelData[p+2];
+      const dx = b(idx + 4) - b(idx - 4);
+      const dy = b(idx + imgW * 4) - b(idx - imgW * 4);
+      const mag = Math.sqrt(dx * dx + dy * dy);
+      if (mag > 20) matches++;
+    }
+
+    return Math.round((matches / (SAMPLES + 1)) * 100);
+  }
+
+  // Score an arc in image-space (no scale conversion needed)
+  function scoreArcRaw(pixelData, box, imgW, id, cx, cy, r) {
+    const bx = Math.round(box.x), by = Math.round(box.y);
+    const angles = ARC_ANGLES[id];
+    const SAMPLES = 40;
+    let matches = 0;
+    const b = (p) => 0.299 * pixelData[p] + 0.587 * pixelData[p+1] + 0.114 * pixelData[p+2];
+    for (let i = 0; i <= SAMPLES; i++) {
+      const a = angles.start + (angles.end - angles.start) * (i / SAMPLES);
+      const gx = Math.round(bx + cx + r * Math.cos(a));
+      const gy = Math.round(by + cy + r * Math.sin(a));
+      if (gx < 1 || gx >= imgW - 1 || gy < 1) continue;
+      const idx = (gy * imgW + gx) * 4;
+      if (idx < 4 || idx >= pixelData.length - imgW * 4 - 4) continue;
+      const dx = b(idx + 4) - b(idx - 4);
+      const dy = b(idx + imgW * 4) - b(idx - imgW * 4);
+      if (Math.sqrt(dx * dx + dy * dy) > 20) matches++;
+    }
+    return matches / (SAMPLES + 1);
+  }
+
+  // Grid search for the best arc center + radius in image-space.
+  // The arc center should be INSIDE the card near the card edge corner,
+  // offset inward by the radius. The arc must pass through the card edge.
+  //
+  // Corner box layout (TL example):
+  //   Local (0,0) = card_left - PAD, card_top - PAD
+  //   Card edge at ~(PAD, PAD)
+  //   Art edge at ~(box.w - PAD, box.h - PAD)
+  //   Arc center at ~(PAD + r, PAD + r) — inside the card
+  //
+  function autoFitArc(pixelData, box, imgW, id) {
+    const bw = box.w, bh = box.h;
+    const pad = CORNER_PAD;
+
+    // Card edge position in local box coords
+    const cardX = (id === 'tl' || id === 'bl') ? pad : bw - pad;
+    const cardY = (id === 'tl' || id === 'tr') ? pad : bh - pad;
+
+    // Direction inward from card edge (toward center of card)
+    const dx = (id === 'tl' || id === 'bl') ? 1 : -1;
+    const dy = (id === 'tl' || id === 'tr') ? 1 : -1;
+
+    // Search radii — card corner radii are typically small
+    const minR = Math.min(bw, bh) * 0.10;
+    const maxR = Math.min(bw, bh) * 0.70;
+    const rStep = Math.max(1, Math.round((maxR - minR) / 20));
+
+    // For each radius, the ideal center is at (cardX + r*dx, cardY + r*dy)
+    // Search neighborhood: 10% inside the card + 10% outside (past the card edge)
+    const spreadInward = Math.max(3, Math.round(Math.min(bw, bh) * 0.10));
+    const spreadOutward = Math.max(3, Math.round(Math.min(bw, bh) * 0.10));
+    const centerSpread = spreadInward + spreadOutward;
+    const cStep = Math.max(1, Math.round(centerSpread / 6));
+
+    let best = { cx: cardX + dx * minR, cy: cardY + dy * minR, r: minR, score: 0 };
+
+    for (let r = minR; r <= maxR; r += rStep) {
+      const idealCx = cardX + dx * r;
+      const idealCy = cardY + dy * r;
+      // Search from outside the card edge (-spreadOutward) to inside (+spreadInward)
+      for (let oxi = -spreadOutward; oxi <= spreadInward; oxi += cStep) {
+        for (let oyi = -spreadOutward; oyi <= spreadInward; oyi += cStep) {
+          const cx = idealCx + oxi * dx, cy = idealCy + oyi * dy;
+          const s = scoreArcRaw(pixelData, box, imgW, id, cx, cy, r);
+          if (s > best.score) best = { cx, cy, r, score: s };
+        }
+      }
+    }
+
+    // Refine around the best
+    const fineC = Math.max(1, cStep / 2), fineR = Math.max(1, rStep / 2);
+    const { cx: bCx, cy: bCy, r: bR } = best;
+    for (let offR = -rStep; offR <= rStep; offR += fineR) {
+      for (let offX = -cStep * 2; offX <= cStep * 2; offX += fineC) {
+        for (let offY = -cStep * 2; offY <= cStep * 2; offY += fineC) {
+          const cx = bCx + offX, cy = bCy + offY, r = bR + offR;
+          if (r < 5) continue;
+          const s = scoreArcRaw(pixelData, box, imgW, id, cx, cy, r);
+          if (s > best.score) best = { cx, cy, r, score: s };
+        }
+      }
+    }
+
+    return best;
+  }
+
+  // ── Drawing a corner canvas ────────────────────────────────────────────
+
+  function drawCorner(id) {
+    const cs = cornerSides[activeCornerSide];
+    if (!cs) return;
+    const corner = cs.corners[id];
+    const canvas = document.getElementById(`corner-${id}-canvas`);
+    const ctx = canvas.getContext('2d');
+    const box = corner.box;
+
+    // Fixed viewport size
+    const maxW = canvas.parentElement.clientWidth - 4;
+    const vpH = 250;
+    canvas.width = maxW;
+    canvas.height = vpH;
+    canvas.style.height = vpH + 'px';
+
+    // Base scale to fit corner in viewport
+    const baseS = Math.min(maxW / box.w, vpH / box.h, 4);
+    if (!corner.zoom) corner.zoom = 1;
+    if (corner.cpx == null) { corner.cpx = (maxW - box.w * baseS) / 2; corner.cpy = (vpH - box.h * baseS) / 2; }
+    const s = baseS * corner.zoom;
+    corner.scale = s;
+
+    // Draw corner image with zoom/pan
+    ctx.clearRect(0, 0, maxW, vpH);
+    ctx.save();
+    ctx.translate(corner.cpx, corner.cpy);
+    ctx.scale(s, s);
+    ctx.drawImage(cs.img, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+    ctx.restore();
+
+    // Cut overlay only on front side
+    const showArc = showCutOverlay && activeCornerSide === 'front';
+    const cutEl = document.getElementById(`corner-${id}-cut`);
+
+    if (showArc) {
+      // Arc coords are in the zoomed/panned space
+      const { cx, cy, r } = corner.arc;
+      const acx = cx * corner.zoom + corner.cpx, acy = cy * corner.zoom + corner.cpy;
+      const ar = r * corner.zoom;
+      const angles = ARC_ANGLES[id];
+
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1;
+      for (const frac of [0, 0.5, 1]) {
+        const a = angles.start + (angles.end - angles.start) * frac;
+        ctx.beginPath(); ctx.moveTo(acx, acy);
+        ctx.lineTo(acx + ar * 1.2 * Math.cos(a), acy + ar * 1.2 * Math.sin(a));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(acx, acy, ar, angles.start, angles.end); ctx.stroke();
+
+      ctx.fillStyle = '#00ff88';
+      ctx.beginPath(); ctx.arc(acx, acy, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(acx, acy, 5, 0, Math.PI * 2); ctx.stroke();
+
+      corner.cutScore = computeCutScore(cs.pixelData, box, cs.imgW, id, corner.arc, baseS);
+      const sc = corner.cutScore;
+      const cls = sc >= 80 ? 'text-success' : sc >= 60 ? 'text-info' : sc >= 40 ? 'text-warning' : 'text-danger';
+      cutEl.innerHTML = `<span class="${cls}">${sc}%</span>`;
+      cutEl.parentElement.style.display = '';
+    } else {
+      cutEl.parentElement.style.display = activeCornerSide === 'back' ? 'none' : '';
+      if (activeCornerSide === 'front') cutEl.innerHTML = '<span class="text-muted">hidden</span>';
+    }
+  }
+
+  // ── Whitening manual counts ────────────────────────────────────────────
+
+  function toggleCutOverlay() {
+    showCutOverlay = !showCutOverlay;
+    const btn = document.getElementById('toggle-cut-overlay');
+    btn.innerHTML = showCutOverlay
+      ? '<i class="bi bi-eye-slash me-1"></i>Hide Cut Overlay'
+      : '<i class="bi bi-eye me-1"></i>Show Cut Overlay';
+    for (const id of CORNER_IDS) drawCorner(id);
+  }
+
+  function adjWhite(id, type, delta) {
+    const cs = cornerSides[activeCornerSide];
+    if (!cs) return;
+    const c = cs.corners[id];
+    c[type] = Math.max(0, (c[type] || 0) + delta);
+    document.getElementById(`corner-${id}-${type}`).textContent = c[type];
+  }
+
+  // ── Corner canvas interaction (arc drag, zoom/pan) ──────────────────────
+
+  CORNER_IDS.forEach(id => {
+    const canvas = document.getElementById(`corner-${id}-canvas`);
+
+    canvas.addEventListener('mousedown', e => {
+      const cs = cornerSides[activeCornerSide];
+      if (!cs) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const corner = cs.corners[id];
+
+      // Check arc center handle first (front + cut overlay only)
+      if (activeCornerSide === 'front' && showCutOverlay) {
+        const acx = corner.arc.cx * corner.zoom + corner.cpx;
+        const acy = corner.arc.cy * corner.zoom + corner.cpy;
+        if (Math.hypot(mx - acx, my - acy) <= 10) {
+          cornerDrag = { id, type: 'center', offX: corner.arc.cx - (mx - corner.cpx) / corner.zoom, offY: corner.arc.cy - (my - corner.cpy) / corner.zoom };
+          canvas.style.cursor = 'grabbing';
+          e.preventDefault();
+          return;
+        }
+      }
+      // Otherwise: pan
+      cornerDrag = { id, type: 'pan', sx: corner.cpx, sy: corner.cpy, mx0: mx, my0: my };
+      canvas.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+
+    // mousemove handled at window level to allow dragging outside canvas
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const cs = cornerSides[activeCornerSide];
+      if (!cs) return;
+      const corner = cs.corners[id];
+
+      // Ctrl+scroll or non-cut-mode: zoom. Plain scroll on front+cut: arc radius.
+      if (activeCornerSide === 'front' && showCutOverlay && !e.ctrlKey) {
+        corner.arc.r = Math.max(10, corner.arc.r + (e.deltaY < 0 ? 3 : -3));
+      } else {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const oldZ = corner.zoom;
+        corner.zoom = Math.max(0.5, Math.min(10, corner.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+        // Keep point under cursor fixed
+        corner.cpx = mx - (mx - corner.cpx) * (corner.zoom / oldZ);
+        corner.cpy = my - (my - corner.cpy) * (corner.zoom / oldZ);
+      }
+      drawCorner(id);
+    }, { passive: false });
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!cornerDrag) return;
+    const cs = cornerSides[activeCornerSide];
+    if (!cs) return;
+    const id = cornerDrag.id;
+    const canvas = document.getElementById(`corner-${id}-canvas`);
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const corner = cs.corners[id];
+
+    if (cornerDrag.type === 'center') {
+      corner.arc.cx = (mx - corner.cpx) / corner.zoom + cornerDrag.offX;
+      corner.arc.cy = (my - corner.cpy) / corner.zoom + cornerDrag.offY;
+    } else if (cornerDrag.type === 'pan') {
+      corner.cpx = cornerDrag.sx + (mx - cornerDrag.mx0);
+      corner.cpy = cornerDrag.sy + (my - cornerDrag.my0);
+    }
+    drawCorner(id);
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (cornerDrag) {
+      const canvas = document.getElementById(`corner-${cornerDrag.id}-canvas`);
+      canvas.style.cursor = 'crosshair';
+      cornerDrag = null;
+    }
+  });
+
+  // ── Side switching & rendering ─────────────────────────────────────────
+
+  function switchCornerSide(side) {
+    activeCornerSide = side;
+    document.querySelectorAll('#corner-side-tabs .nav-link').forEach(el => el.classList.toggle('active', el.dataset.side === side));
+    // Reset zoom/pan for the new side
+    const cs = cornerSides[side];
+    if (cs) for (const c of Object.values(cs.corners)) { c.zoom = 1; c.cpx = null; c.cpy = null; }
+    renderCorners();
+  }
+
+  function renderCorners() {
+    const cs = cornerSides[activeCornerSide];
+    if (!cs) return;
+    for (const id of CORNER_IDS) {
+      drawCorner(id);
+      document.getElementById(`corner-${id}-micro`).textContent = cs.corners[id].micro || 0;
+      document.getElementById(`corner-${id}-minor`).textContent = cs.corners[id].minor || 0;
+      document.getElementById(`corner-${id}-major`).textContent = cs.corners[id].major || 0;
+    }
+  }
+
+  // ── Load and analyze ───────────────────────────────────────────────────
+
+  async function analyzeCorners(certNumber, gcsFrontPath, gcsBackPath) {
+    cornerCert = certNumber;
+    cornerSides = {};
+    activeCornerSide = 'front';
+
+    document.getElementById('corner-cert').textContent = certNumber;
+    document.getElementById('corner-loading').classList.remove('d-none');
+    document.getElementById('corner-result').classList.add('d-none');
+    document.getElementById('corner-error').classList.add('d-none');
+    document.getElementById('corner-need-centering').classList.add('d-none');
+    document.getElementById('corner-actions').style.display = 'none';
+    document.querySelectorAll('#corner-side-tabs .nav-link').forEach(el => el.classList.toggle('active', el.dataset.side === 'front'));
+    cornerModal.show();
+
+    try {
+      let centeringData;
+      try { centeringData = await api('GET', `/certs/${certNumber}/centering-analysis`); }
+      catch (e) { centeringData = null; }
+
+      if (!centeringData) {
+        document.getElementById('corner-loading').classList.add('d-none');
+        document.getElementById('corner-need-centering').classList.remove('d-none');
+        return;
+      }
+
+      const backendURL = document.body.dataset.backendUrl;
+
+      // Try loading saved corner data
+      let savedCorners;
+      try { savedCorners = await api('GET', `/certs/${certNumber}/corner-analysis`); }
+      catch (e) { savedCorners = null; }
+
+      for (const [side, gcsPath] of [['front', gcsFrontPath], ['back', gcsBackPath]]) {
+        if (!gcsPath || !centeringData[side]) continue;
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error(`Failed to load ${side}`)); img.src = `${backendURL}/scans/${gcsPath}`; });
+
+        const imgW = img.naturalWidth, imgH = img.naturalHeight;
+        const offscreen = document.createElement('canvas');
+        offscreen.width = imgW; offscreen.height = imgH;
+        const offCtx = offscreen.getContext('2d');
+        offCtx.drawImage(img, 0, 0);
+        const pixelData = offCtx.getImageData(0, 0, imgW, imgH).data;
+
+        let lineData = centeringData[side].line_data;
+        if (typeof lineData === 'string') lineData = JSON.parse(lineData);
+        if (typeof lineData === 'string') lineData = JSON.parse(lineData);
+        const boxes = getCornerBoxes(lineData, imgW, imgH);
+
+        // Restore saved data or initialize defaults
+        const savedSide = savedCorners && savedCorners[side];
+        const savedMap = {};
+        if (savedSide) for (const sc of savedSide) savedMap[sc.corner] = sc;
+
+        const corners = {};
+        for (const id of CORNER_IDS) {
+          const box = boxes[id];
+          // Temp canvas to get scale for arc positioning
+          const maxW = 300, scale = Math.min(maxW / box.w, 250 / box.h, 4);
+          const cw = box.w * scale, ch = box.h * scale;
+
+          let arc, micro = 0, minor = 0, major = 0;
+          const saved = savedMap[id];
+          if (saved && saved.corner_data) {
+            let cd = typeof saved.corner_data === 'string' ? JSON.parse(saved.corner_data) : saved.corner_data;
+            if (typeof cd === 'string') cd = JSON.parse(cd);
+            arc = cd.arc || { cx: defaultArcCenter(id, cw, ch).x, cy: defaultArcCenter(id, cw, ch).y, r: defaultArcRadius(cw, ch) };
+            micro = cd.micro || 0;
+            minor = cd.minor || 0;
+            major = cd.major || 0;
+          } else {
+            // Auto-fit: grid search for best arc in image-space, then convert to display coords
+            const fit = autoFitArc(pixelData, box, imgW, id);
+            arc = { cx: fit.cx * scale, cy: fit.cy * scale, r: fit.r * scale };
+          }
+
+          corners[id] = { box, arc, cutScore: 0, micro, minor, major, scale };
+        }
+
+        cornerSides[side] = { img, imgW, imgH, pixelData, corners };
+      }
+
+      const backTab = document.querySelector('#corner-side-tabs [data-side="back"]').parentElement;
+      backTab.style.display = cornerSides.back ? '' : 'none';
+
+      document.getElementById('corner-loading').classList.add('d-none');
+      document.getElementById('corner-result').classList.remove('d-none');
+      document.getElementById('corner-actions').style.display = '';
+      renderCorners();
+    } catch (e) {
+      document.getElementById('corner-loading').classList.add('d-none');
+      document.getElementById('corner-error').textContent = 'Corner analysis failed: ' + e.message;
+      document.getElementById('corner-error').classList.remove('d-none');
+    }
+  }
+
+  // ── Approve & save ─────────────────────────────────────────────────────
+
+  document.getElementById('corner-approve-btn').addEventListener('click', async () => {
+    if (!cornerCert) return;
+    const btn = document.getElementById('corner-approve-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+
+    try {
+      for (const side of ['front', 'back']) {
+        const cs = cornerSides[side];
+        if (!cs) continue;
+
+        const corners = CORNER_IDS.map(id => {
+          const c = cs.corners[id];
+          return {
+            corner: id,
+            cut_score: c.cutScore,
+            whitening_score: 0, // replaced by minor/major counts
+            corner_data: JSON.stringify({ box: c.box, arc: c.arc, micro: c.micro || 0, minor: c.minor || 0, major: c.major || 0 }),
+          };
+        });
+
+        await api('POST', `/certs/${cornerCert}/corner-analysis`, { side, corners });
+      }
+
+      showToast(`Corner analysis saved for cert ${cornerCert}`, 'success');
+      cornerModal.hide();
+      await loadAnalysisData();
+      const tbody = document.getElementById('refs-tbody');
+      if (tbody.children.length) loadRefs();
+    } catch (e) {
+      showToast('Failed to save corner analysis: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Approve & Save';
+    }
+  });
+
+  // ── Edge Analysis ──────────────────────────────────────────────────────
+
+  const edgeModal = new bootstrap.Modal(document.getElementById('edgeModal'));
+  let edgeCert = null;
+  let edgeSides = {};  // { front: { img, edges: {top,right,bottom,left} }, back: ... }
+  let activeEdgeSide = 'front';
+
+  const EDGE_IDS = ['top', 'right', 'bottom', 'left'];
+  const EDGE_PAD = 25;
+
+  function getEdgeBoxes(lineData, imgW, imgH) {
+    const v = lineData.vLines, h = lineData.hLines;
+    const cl = (v.card_left.a + v.card_left.b) / 2;
+    const al = (v.art_left.a + v.art_left.b) / 2;
+    const ar = (v.art_right.a + v.art_right.b) / 2;
+    const cr = (v.card_right.a + v.card_right.b) / 2;
+    const ct = (h.card_top.a + h.card_top.b) / 2;
+    const at = (h.art_top.a + h.art_top.b) / 2;
+    const ab = (h.art_bottom.a + h.art_bottom.b) / 2;
+    const cb = (h.card_bottom.a + h.card_bottom.b) / 2;
+
+    // Edge rectangles: the strip between art edges (excluding corners)
+    return {
+      top:    { x: al, y: Math.max(0, ct - EDGE_PAD), w: ar - al, h: at - ct + EDGE_PAD * 2 },
+      bottom: { x: al, y: ab - EDGE_PAD, w: ar - al, h: cb - ab + EDGE_PAD * 2 },
+      left:   { x: Math.max(0, cl - EDGE_PAD), y: at, w: al - cl + EDGE_PAD * 2, h: ab - at },
+      right:  { x: ar - EDGE_PAD, y: at, w: cr - ar + EDGE_PAD * 2, h: ab - at },
+    };
+  }
+
+  function adjEdgeWhite(edgeId, type, delta) {
+    const es = edgeSides[activeEdgeSide];
+    if (!es) return;
+    const e = es.edges[edgeId];
+    e[type] = Math.max(0, (e[type] || 0) + delta);
+    document.getElementById(`edge-${edgeId}-${type}`).textContent = e[type];
+  }
+
+  function switchEdgeSide(side) {
+    activeEdgeSide = side;
+    document.querySelectorAll('#edge-side-tabs .nav-link').forEach(el => el.classList.toggle('active', el.dataset.side === side));
+    const es = edgeSides[side];
+    if (es) for (const e of Object.values(es.edges)) { e.zoom = 1; e.epx = null; e.epy = null; }
+    renderEdges();
+  }
+
+  let edgeDrag = null; // { id, type: 'pan', sx, sy, mx0, my0 }
+
+  function drawEdge(id) {
+    const es = edgeSides[activeEdgeSide];
+    if (!es) return;
+    const edge = es.edges[id];
+    const canvas = document.getElementById(`edge-${id}-canvas`);
+    const ctx = canvas.getContext('2d');
+    const box = edge.box;
+
+    const maxW = canvas.parentElement.clientWidth - 4;
+    const vpH = 150;
+    canvas.width = maxW;
+    canvas.height = vpH;
+    canvas.style.height = vpH + 'px';
+    canvas.style.cursor = 'grab';
+
+    // For left/right edges, swap w/h for base scale since they're rotated 90°
+    const isVert = (id === 'left' || id === 'right');
+    const isFlip = (id === 'bottom');
+    const dispW = isVert ? box.h : box.w;
+    const dispH = isVert ? box.w : box.h;
+    const baseS = Math.min(maxW / dispW, vpH / dispH, 4);
+    if (!edge.zoom) edge.zoom = 1;
+    if (edge.epx == null) { edge.epx = (maxW - dispW * baseS) / 2; edge.epy = (vpH - dispH * baseS) / 2; }
+    const s = baseS * edge.zoom;
+
+    ctx.clearRect(0, 0, maxW, vpH);
+    ctx.save();
+    if (isVert) {
+      ctx.translate(edge.epx + dispW * s / 2, edge.epy + dispH * s / 2);
+      ctx.rotate(id === 'left' ? Math.PI / 2 : -Math.PI / 2);
+      ctx.scale(s, s);
+      ctx.drawImage(es.img, box.x, box.y, box.w, box.h, -box.w / 2, -box.h / 2, box.w, box.h);
+    } else if (isFlip) {
+      // Bottom edge: rotate 180° so card edge is on top
+      ctx.translate(edge.epx + dispW * s / 2, edge.epy + dispH * s / 2);
+      ctx.rotate(Math.PI);
+      ctx.scale(s, s);
+      ctx.drawImage(es.img, box.x, box.y, box.w, box.h, -box.w / 2, -box.h / 2, box.w, box.h);
+    } else {
+      ctx.translate(edge.epx, edge.epy);
+      ctx.scale(s, s);
+      ctx.drawImage(es.img, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+    }
+    ctx.restore();
+
+    document.getElementById(`edge-${id}-micro`).textContent = edge.micro || 0;
+    document.getElementById(`edge-${id}-minor`).textContent = edge.minor || 0;
+    document.getElementById(`edge-${id}-major`).textContent = edge.major || 0;
+  }
+
+  function renderEdges() {
+    const es = edgeSides[activeEdgeSide];
+    if (!es) return;
+    for (const id of EDGE_IDS) drawEdge(id);
+  }
+
+  // Edge canvas zoom/pan
+  EDGE_IDS.forEach(id => {
+    const canvas = document.getElementById(`edge-${id}-canvas`);
+
+    canvas.addEventListener('mousedown', e => {
+      const es = edgeSides[activeEdgeSide];
+      if (!es) return;
+      const rect = canvas.getBoundingClientRect();
+      const edge = es.edges[id];
+      edgeDrag = { id, type: 'pan', sx: edge.epx, sy: edge.epy, mx0: e.clientX - rect.left, my0: e.clientY - rect.top };
+      canvas.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (!edgeDrag || edgeDrag.id !== id) return;
+      const es = edgeSides[activeEdgeSide];
+      if (!es) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const edge = es.edges[id];
+      edge.epx = edgeDrag.sx + (mx - edgeDrag.mx0);
+      edge.epy = edgeDrag.sy + (my - edgeDrag.my0);
+      drawEdge(id);
+    });
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const es = edgeSides[activeEdgeSide];
+      if (!es) return;
+      const edge = es.edges[id];
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const oldZ = edge.zoom;
+      edge.zoom = Math.max(0.5, Math.min(10, edge.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      edge.epx = mx - (mx - edge.epx) * (edge.zoom / oldZ);
+      edge.epy = my - (my - edge.epy) * (edge.zoom / oldZ);
+      drawEdge(id);
+    }, { passive: false });
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (edgeDrag) {
+      document.getElementById(`edge-${edgeDrag.id}-canvas`).style.cursor = 'grab';
+      edgeDrag = null;
+    }
+  });
+
+  async function analyzeEdges(certNumber, gcsFrontPath, gcsBackPath) {
+    edgeCert = certNumber;
+    edgeSides = {};
+    activeEdgeSide = 'front';
+
+    document.getElementById('edge-cert').textContent = certNumber;
+    document.getElementById('edge-loading').classList.remove('d-none');
+    document.getElementById('edge-result').classList.add('d-none');
+    document.getElementById('edge-error').classList.add('d-none');
+    document.getElementById('edge-need-centering').classList.add('d-none');
+    document.getElementById('edge-actions').style.display = 'none';
+    document.querySelectorAll('#edge-side-tabs .nav-link').forEach(el => el.classList.toggle('active', el.dataset.side === 'front'));
+    edgeModal.show();
+
+    try {
+      let centeringData;
+      try { centeringData = await api('GET', `/certs/${certNumber}/centering-analysis`); }
+      catch (e) { centeringData = null; }
+
+      if (!centeringData) {
+        document.getElementById('edge-loading').classList.add('d-none');
+        document.getElementById('edge-need-centering').classList.remove('d-none');
+        return;
+      }
+
+      const backendURL = document.body.dataset.backendUrl;
+
+      // Try loading saved edge data
+      let savedEdges;
+      try { savedEdges = await api('GET', `/certs/${certNumber}/edge-analysis`); }
+      catch (e) { savedEdges = null; }
+
+      for (const [side, gcsPath] of [['front', gcsFrontPath], ['back', gcsBackPath]]) {
+        if (!gcsPath || !centeringData[side]) continue;
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error(`Failed to load ${side}`)); img.src = `${backendURL}/scans/${gcsPath}`; });
+
+        let lineData = centeringData[side].line_data;
+        if (typeof lineData === 'string') lineData = JSON.parse(lineData);
+        if (typeof lineData === 'string') lineData = JSON.parse(lineData);
+        const boxes = getEdgeBoxes(lineData, img.naturalWidth, img.naturalHeight);
+
+        const savedSide = savedEdges && savedEdges[side];
+        const savedMap = {};
+        if (savedSide) for (const se of savedSide) savedMap[se.edge] = se;
+
+        const edges = {};
+        for (const id of EDGE_IDS) {
+          const saved = savedMap[id];
+          let micro = 0;
+          if (saved && saved.edge_data) {
+            let ed = typeof saved.edge_data === 'string' ? JSON.parse(saved.edge_data) : saved.edge_data;
+            if (typeof ed === 'string') ed = JSON.parse(ed);
+            micro = ed.micro || 0;
+          }
+          edges[id] = {
+            box: boxes[id],
+            micro,
+            minor: saved ? saved.minor_whitening : 0,
+            major: saved ? saved.major_whitening : 0,
+          };
+        }
+
+        edgeSides[side] = { img, edges };
+      }
+
+      const backTab = document.querySelector('#edge-side-tabs [data-side="back"]').parentElement;
+      backTab.style.display = edgeSides.back ? '' : 'none';
+
+      document.getElementById('edge-loading').classList.add('d-none');
+      document.getElementById('edge-result').classList.remove('d-none');
+      document.getElementById('edge-actions').style.display = '';
+      renderEdges();
+    } catch (e) {
+      document.getElementById('edge-loading').classList.add('d-none');
+      document.getElementById('edge-error').textContent = 'Edge analysis failed: ' + e.message;
+      document.getElementById('edge-error').classList.remove('d-none');
+    }
+  }
+
+  document.getElementById('edge-approve-btn').addEventListener('click', async () => {
+    if (!edgeCert) return;
+    const btn = document.getElementById('edge-approve-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+
+    try {
+      for (const side of ['front', 'back']) {
+        const es = edgeSides[side];
+        if (!es) continue;
+
+        const edges = EDGE_IDS.map(id => ({
+          edge: id,
+          minor_whitening: es.edges[id].minor || 0,
+          major_whitening: es.edges[id].major || 0,
+          edge_data: JSON.stringify({ box: es.edges[id].box, micro: es.edges[id].micro || 0 }),
+        }));
+
+        await api('POST', `/certs/${edgeCert}/edge-analysis`, { side, edges });
+      }
+
+      showToast(`Edge analysis saved for cert ${edgeCert}`, 'success');
+      edgeModal.hide();
+      await loadAnalysisData();
+      const tbody = document.getElementById('refs-tbody');
+      if (tbody.children.length) loadRefs();
+    } catch (e) {
+      showToast('Failed to save edge analysis: ' + e.message, 'danger');
     } finally {
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Approve & Save';

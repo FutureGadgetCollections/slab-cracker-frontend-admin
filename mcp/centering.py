@@ -185,9 +185,15 @@ def analyze_centering(img_bytes: bytes) -> dict:
     else:
         summary = "N/A"
 
+    # Raw image (no annotations) for canvas-based interactive editor
+    raw_buf = io.BytesIO()
+    img.save(raw_buf, format="PNG", optimize=True)
+    raw_b64 = base64.b64encode(raw_buf.getvalue()).decode("ascii")
+
     return {
         "measurements": measurements,
         "annotated_image": annotated_b64,
+        "raw_image": raw_b64,
         "summary": summary,
         "image_width": w,
         "image_height": h,
