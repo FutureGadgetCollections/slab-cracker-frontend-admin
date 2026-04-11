@@ -12,33 +12,15 @@
       <!-- Auth-required links (hidden until signed in) -->
       <ul class="navbar-nav me-auto" id="nav-links" style="display:none!important">
         <li class="nav-item">
-          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/submit/" }} active{{ end }}"
-             href="{{ "submit/" | relURL }}" title="Submit a PSA cert for analysis">
-            <i class="bi bi-upc-scan me-1"></i>Submit Cert
+          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/card-analysis/" }} active{{ end }}"
+             href="{{ "card-analysis/" | relURL }}" title="LLM-powered card quality analysis">
+            <i class="bi bi-clipboard2-data me-1"></i>Card Analysis
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/reference-cards/" }} active{{ end }}"
-             href="{{ "reference-cards/" | relURL }}" title="Manage reference PSA 10 / BGS BL cards">
-            <i class="bi bi-star me-1"></i>Reference Cards
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/analysis/" }} active{{ end }}"
-             href="{{ "analysis/" | relURL }}" title="View analysis results">
-            <i class="bi bi-bar-chart me-1"></i>Analysis
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/defects/" }} active{{ end }}"
-             href="{{ "defects/" | relURL }}" title="Defect pattern tracking">
-            <i class="bi bi-exclamation-triangle me-1"></i>Defects
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/candidates/" }} active{{ end }}"
-             href="{{ "candidates/" | relURL }}" title="Re-submission candidates">
-            <i class="bi bi-trophy me-1"></i>Candidates
+          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/ebay-pipeline/" }} active{{ end }}"
+             href="{{ "ebay-pipeline/" | relURL }}" title="eBay alert processing pipeline">
+            <i class="bi bi-cart me-1"></i>eBay Pipeline
           </a>
         </li>
       </ul>

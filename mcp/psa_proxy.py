@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-PSA cert proxy for slab-cracker.
+Residential IP proxy for slab-cracker.
 
-Fetches PSA cert pages from a residential IP (avoids Cloudflare blocking
-cloud IPs). Parses metadata and downloads front/back scan images.
+Fetches PSA cert pages and eBay listing pages from a residential IP
+(avoids Cloudflare/anti-bot blocking on cloud IPs).
 
 Usage (local):
     python mcp/psa_proxy.py
@@ -49,7 +49,15 @@ SCAN_IMAGE_RE = re.compile(
 
 
 def fetch_url(url: str) -> bytes:
-    """Fetch a URL using curl (bypasses TLS fingerprinting that blocks urllib)."""
+    """Fetch a URL. Uses headless browser for Cloudflare-protected sites (PSA),
+    plain curl for everything else (eBay, image downloads)."""
+    if "psacard.com" in url:
+        return _fetch_browser(url)
+    return _fetch_curl(url)
+
+
+def _fetch_curl(url: str) -> bytes:
+    """Plain curl — works for non-Cloudflare sites."""
     result = subprocess.run(
         ["curl", "-s", "-L", "-A", USER_AGENT, "--max-time", "20", url],
         capture_output=True,
@@ -59,6 +67,63 @@ def fetch_url(url: str) -> bytes:
     if not result.stdout:
         raise RuntimeError("curl returned empty response")
     return result.stdout
+
+
+# Browser singleton — reuse across requests to avoid startup cost
+_browser_driver = None
+
+def _get_browser():
+    """Get or create a shared browser instance."""
+    global _browser_driver
+    if _browser_driver is not None:
+        try:
+            _ = _browser_driver.title  # check if still alive
+            return _browser_driver
+        except Exception:
+            _browser_driver = None
+
+    try:
+        import undetected_chromedriver as uc
+        opts = uc.ChromeOptions()
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--disable-dev-shm-usage")
+        opts.add_argument("--disable-gpu")
+        opts.binary_location = "/usr/bin/chromium"
+        _browser_driver = uc.Chrome(options=opts, headless=False)
+        print("  Browser started (undetected_chromedriver)")
+    except ImportError:
+        # Fallback: regular selenium
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        opts = Options()
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--disable-dev-shm-usage")
+        opts.add_argument("--disable-gpu")
+        opts.binary_location = "/usr/bin/chromium"
+        _browser_driver = webdriver.Chrome(options=opts)
+        print("  Browser started (selenium)")
+    return _browser_driver
+
+
+def _fetch_browser(url: str) -> bytes:
+    """Fetch a Cloudflare-protected page using a real browser.
+    Waits up to 60 seconds for the challenge to clear."""
+    import time
+    driver = _get_browser()
+    driver.get(url)
+
+    # Wait for Cloudflare challenge to clear (up to 60s)
+    for i in range(30):
+        time.sleep(2)
+        title = driver.title or ""
+        if "just a moment" not in title.lower():
+            break
+
+    page = driver.page_source
+    if "just a moment" in (driver.title or "").lower():
+        raise RuntimeError("Cloudflare challenge did not clear after 60 seconds")
+
+    return page.encode("utf-8")
 
 
 def parse_cert_page(html: str) -> dict:
@@ -194,6 +259,73 @@ def lookup_cert(cert_number: str) -> dict:
     return result
 
 
+# ── eBay listing scraping ─────────────────────────────────────────────────────
+
+def scrape_ebay_listing(item_id_or_url: str) -> dict:
+    """Fetch an eBay listing page and extract photos + metadata."""
+    if item_id_or_url.startswith("http"):
+        url = item_id_or_url
+    else:
+        url = f"https://www.ebay.com/itm/{item_id_or_url}"
+
+    html = fetch_url(url).decode("utf-8", errors="replace")
+    import html as html_module
+
+    result = {"url": url, "photos": [], "title": "", "price": ""}
+
+    # Parse JSON-LD for structured data
+    ld_pattern = re.compile(r'<script\s+type="application/ld\+json">(.*?)</script>', re.DOTALL)
+    for m in ld_pattern.finditer(html):
+        try:
+            data = json.loads(m.group(1))
+            if isinstance(data, list):
+                data = data[0]
+            images = data.get("image", [])
+            if isinstance(images, str):
+                images = [images]
+            for img in images:
+                if isinstance(img, dict):
+                    img = img.get("url", "")
+                if img and "ebayimg.com" in img:
+                    img = re.sub(r'/s-l\d+/', '/s-l1600/', img)
+                    if img not in result["photos"]:
+                        result["photos"].append(img)
+            if data.get("name"):
+                result["title"] = data["name"]
+            offers = data.get("offers", {})
+            if isinstance(offers, list):
+                offers = offers[0] if offers else {}
+            if offers.get("price"):
+                result["price"] = f"${offers['price']}"
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    # Fallback: og:image
+    if not result["photos"]:
+        og_match = re.search(r'<meta\s+property="og:image"\s+content="([^"]+)"', html)
+        if og_match:
+            img = re.sub(r'/s-l\d+/', '/s-l1600/', og_match.group(1))
+            result["photos"].append(img)
+
+    # Fallback: any ebayimg.com images
+    if not result["photos"]:
+        for img_match in re.finditer(r'(https://i\.ebayimg\.com/images/g/[^"\'<>\s]+)', html):
+            img = re.sub(r'/s-l\d+/', '/s-l1600/', img_match.group(1))
+            if img not in result["photos"]:
+                result["photos"].append(img)
+
+    # Fallback: title from og:title
+    if not result["title"]:
+        og_title = re.search(r'<meta\s+property="og:title"\s+content="([^"]+)"', html)
+        if og_title:
+            result["title"] = html_module.unescape(og_title.group(1))
+
+    id_match = re.search(r'/itm/(\d+)', url)
+    result["item_id"] = id_match.group(1) if id_match else ""
+    result["photo_count"] = len(result["photos"])
+    return result
+
+
 # ── HTTP server ───────────────────────────────────────────────────────────────
 
 class ProxyHandler(BaseHTTPRequestHandler):
@@ -245,13 +377,52 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.send_json_error(500, f"Analysis failed: {e}")
             return
 
+        # Route: /ebay/{item_id} — scrape eBay listing for photos + metadata
+        m_ebay = re.match(r"^/ebay/(\d+)$", self.path)
+        if m_ebay:
+            item_id = m_ebay.group(1)
+            print(f"Scraping eBay listing {item_id}...")
+            try:
+                result = scrape_ebay_listing(item_id)
+                body = json.dumps(result).encode("utf-8")
+                self.send_response(200)
+                self.send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                print(f"  -> {result.get('title', '?')[:60]} | {result.get('photo_count', 0)} photos")
+            except Exception as e:
+                self.send_json_error(502, str(e))
+            return
+
+        # Route: /ebay/photo?url=<photo_url> — download an eBay photo (proxy)
+        if self.path.startswith("/ebay/photo"):
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            photo_url = qs.get("url", [None])[0]
+            if not photo_url:
+                self.send_json_error(400, "url query param required")
+                return
+            try:
+                img_data = fetch_url(photo_url)
+                self.send_response(200)
+                self.send_cors_headers()
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(img_data)))
+                self.end_headers()
+                self.wfile.write(img_data)
+            except Exception as e:
+                self.send_json_error(502, f"Photo download failed: {e}")
+            return
+
         # Route: /lookup/{cert_number}
         m = re.match(r"^/lookup/(\d+)$", self.path)
         if not m:
             self.send_response(404)
             self.send_cors_headers()
             self.end_headers()
-            self.wfile.write(b'{"error":"Use /lookup/{cert_number} or /analyze?scan_url=..."}')
+            self.wfile.write(b'{"error":"Use /lookup/{cert_number}, /ebay/{item_id}, or /analyze?scan_url=..."}')
             return
 
         cert_number = m.group(1)

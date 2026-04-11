@@ -1,3 +1,0 @@
----
-title: "Re-Submission Candidates"
----

@@ -1,0 +1,247 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-cart me-2"></i>{{ .Title }}</h2>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-primary" onclick="processQueue()">
+      <i class="bi bi-play-circle me-1"></i>Process Queue
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadPipeline()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+</div>
+
+<p class="text-muted small">
+  eBay saved search alerts are processed here: email parsed, listing photos scraped, PSA cert numbers extracted via OCR.
+</p>
+
+<!-- Manual URL input -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-8">
+        <label class="form-label small fw-medium mb-1">Test single eBay listing URL</label>
+        <input type="text" class="form-control form-control-sm" id="manual-url" placeholder="https://www.ebay.com/itm/...">
+      </div>
+      <div class="col-md-4">
+        <button class="btn btn-primary btn-sm w-100" onclick="processManualURL()">
+          <i class="bi bi-search me-1"></i>Process URL
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Auth guard -->
+<div id="auth-guard" class="alert alert-warning d-none">
+  <i class="bi bi-lock me-1"></i>You must be <a href="{{ "" | relURL }}">signed in</a> to view the pipeline.
+</div>
+
+<!-- Status tabs -->
+<ul class="nav nav-tabs mb-3 d-none" id="status-tabs">
+  <li class="nav-item"><a class="nav-link active" href="#" data-status="" onclick="switchTab(this,event)">All</a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-status="ocr_done" onclick="switchTab(this,event)">OCR Done <span class="badge bg-success ms-1" id="count-ocr">0</span></a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-status="ocr_failed" onclick="switchTab(this,event)">OCR Failed <span class="badge bg-danger ms-1" id="count-failed">0</span></a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-status="cert_cataloged" onclick="switchTab(this,event)">Cataloged <span class="badge bg-info ms-1" id="count-cataloged">0</span></a></li>
+  <li class="nav-item"><a class="nav-link" href="#" data-status="duplicate" onclick="switchTab(this,event)">Duplicate <span class="badge bg-secondary ms-1" id="count-dup">0</span></a></li>
+</ul>
+
+<!-- Loading -->
+<div id="loading" class="text-center py-5">
+  <div class="spinner-border text-primary" role="status"></div>
+</div>
+
+<!-- Empty -->
+<div id="empty-state" class="text-center py-5 d-none">
+  <i class="bi bi-cart fs-1 text-muted"></i>
+  <p class="text-muted mt-2">No pipeline entries yet. Process an eBay alert or paste a listing URL above.</p>
+</div>
+
+<!-- Results table -->
+<div class="card shadow-sm border-0 d-none" id="results-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Listing</th>
+            <th>Cert #</th>
+            <th>OCR</th>
+            <th>Grade</th>
+            <th>Status</th>
+            <th>Discovered</th>
+            <th class="text-end pe-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  let allEntries = [];
+  let currentFilter = '';
+
+  if (!window._firebaseReady) {
+    document.getElementById('loading').classList.add('d-none');
+    document.getElementById('auth-guard').classList.remove('d-none');
+  } else {
+    firebase.auth().onAuthStateChanged(async user => {
+      if (!user) {
+        document.getElementById('loading').classList.add('d-none');
+        document.getElementById('auth-guard').classList.remove('d-none');
+        return;
+      }
+      document.getElementById('status-tabs').classList.remove('d-none');
+      await loadPipeline();
+    });
+  }
+
+  async function loadPipeline() {
+    document.getElementById('loading').classList.remove('d-none');
+    document.getElementById('results-card').classList.add('d-none');
+    document.getElementById('empty-state').classList.add('d-none');
+    try {
+      const url = '/pipeline/status' + (currentFilter ? `?status=${currentFilter}` : '');
+      allEntries = await api('GET', url) || [];
+      document.getElementById('loading').classList.add('d-none');
+      updateCounts();
+      if (allEntries.length === 0) { document.getElementById('empty-state').classList.remove('d-none'); return; }
+      renderEntries(allEntries);
+    } catch (e) {
+      document.getElementById('loading').classList.add('d-none');
+      showToast('Failed to load pipeline: ' + e.message, 'danger');
+    }
+  }
+
+  async function updateCounts() {
+    try {
+      const all = await api('GET', '/pipeline/status') || [];
+      document.getElementById('count-ocr').textContent = all.filter(e => e.status === 'ocr_done').length;
+      document.getElementById('count-failed').textContent = all.filter(e => e.status === 'ocr_failed').length;
+      document.getElementById('count-cataloged').textContent = all.filter(e => e.status === 'cert_cataloged').length;
+      document.getElementById('count-dup').textContent = all.filter(e => e.status === 'duplicate').length;
+    } catch (_) {}
+  }
+
+  function switchTab(el, e) {
+    e.preventDefault();
+    document.querySelectorAll('#status-tabs .nav-link').forEach(l => l.classList.remove('active'));
+    el.classList.add('active');
+    currentFilter = el.dataset.status;
+    loadPipeline();
+  }
+
+  function renderEntries(entries) {
+    document.getElementById('empty-state').classList.add('d-none');
+    document.getElementById('results-card').classList.remove('d-none');
+    document.getElementById('results-tbody').innerHTML = entries.map(e => {
+      const title = esc(e.listing_title || '—').substring(0, 80);
+      const statusCls = {'ocr_done':'success','ocr_failed':'danger','cert_cataloged':'info','duplicate':'secondary','error':'danger','new':'warning','photos_scraped':'warning'}[e.status] || 'secondary';
+      return `<tr>
+        <td class="ps-3">
+          <a href="${esc(e.ebay_url)}" target="_blank" class="text-decoration-none">${title}</a>
+          <br><span class="text-muted" style="font-size:10px">${esc(e.ebay_item_id || '')}</span>
+          ${e.listing_price ? `<span class="badge bg-light text-dark ms-1">${esc(e.listing_price)}</span>` : ''}
+        </td>
+        <td class="font-monospace fw-medium">${e.cert_number ? esc(e.cert_number) : '<span class="text-muted">—</span>'}</td>
+        <td>${e.ocr_method ? `<span class="badge bg-light text-dark">${esc(e.ocr_method)}</span>` : '—'}
+            ${e.ocr_confidence ? `<span class="text-muted small">${(e.ocr_confidence*100).toFixed(0)}%</span>` : ''}</td>
+        <td>${e.grade ? `<span class="badge bg-primary">${esc(e.grade)}</span>` : '—'}</td>
+        <td><span class="badge bg-${statusCls}">${esc(e.status)}</span>
+            ${e.error_message ? `<br><span class="text-danger small">${esc(e.error_message).substring(0,50)}</span>` : ''}</td>
+        <td class="text-muted">${e.discovered_at ? new Date(e.discovered_at).toLocaleDateString() : '—'}</td>
+        <td class="text-end pe-3 text-nowrap">
+          ${e.status === 'ocr_failed' ? `<button class="btn btn-sm btn-outline-warning me-1" onclick='editCert("${e.id}")' title="Enter cert manually"><i class="bi bi-pencil"></i></button>` : ''}
+          ${e.status === 'error' || e.status === 'ocr_failed' ? `<button class="btn btn-sm btn-outline-info me-1" onclick='retryEntry("${esc(e.ebay_url)}")' title="Retry"><i class="bi bi-arrow-clockwise"></i></button>` : ''}
+          ${e.cert_number && e.status === 'ocr_done' ? `<button class="btn btn-sm btn-outline-success me-1" onclick='catalogCert("${e.id}","${e.cert_number}")' title="Catalog this cert"><i class="bi bi-plus-circle"></i></button>` : ''}
+          <button class="btn btn-sm btn-outline-danger me-1" onclick='deleteEntry("${e.id}")' title="Delete"><i class="bi bi-trash"></i></button>
+          <a href="${esc(e.ebay_url)}" target="_blank" class="btn btn-sm btn-outline-secondary" title="View on eBay"><i class="bi bi-box-arrow-up-right"></i></a>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function processManualURL() {
+    const url = document.getElementById('manual-url').value.trim();
+    if (!url || !url.includes('ebay.com')) {
+      showToast('Enter a valid eBay listing URL', 'warning');
+      return;
+    }
+    try {
+      showToast('Processing listing...', 'info');
+      const result = await api('POST', '/pipeline/ebay-url', { url });
+      showToast('Listing processed', 'success');
+      document.getElementById('manual-url').value = '';
+      await loadPipeline();
+    } catch (e) {
+      showToast('Processing failed: ' + e.message, 'danger');
+    }
+  }
+
+  async function processQueue() {
+    try {
+      showToast('Processing queue...', 'info');
+      const result = await api('POST', '/pipeline/process-queue');
+      showToast(`Queue processed: ${result.processed} cataloged, ${result.skipped} skipped`, 'success');
+      await loadPipeline();
+    } catch (e) {
+      showToast('Queue processing failed: ' + e.message, 'danger');
+    }
+  }
+
+  async function editCert(pipelineId) {
+    const cert = prompt('Enter the PSA cert number (8-9 digits):');
+    if (!cert || !/^\d{8,9}$/.test(cert)) {
+      if (cert) showToast('Cert must be 8-9 digits', 'warning');
+      return;
+    }
+    try {
+      await api('PUT', `/pipeline/${pipelineId}`, {
+        cert_number: cert,
+        ocr_method: 'manual',
+        status: 'ocr_done',
+        psa_lookup_status: 'pending',
+      });
+      showToast(`Cert ${cert} saved`, 'success');
+      await loadPipeline();
+    } catch (e) {
+      showToast('Update failed: ' + e.message, 'danger');
+    }
+  }
+
+  async function catalogCert(pipelineId, certNumber) {
+    showToast(`Queuing cert ${certNumber} for processing...`, 'info');
+    try {
+      await api('POST', '/pipeline/process-queue');
+      await loadPipeline();
+    } catch (e) {
+      showToast('Catalog failed: ' + e.message, 'danger');
+    }
+  }
+
+  async function retryEntry(ebayUrl) {
+    try {
+      showToast('Retrying...', 'info');
+      await api('POST', '/pipeline/ebay-url', { url: ebayUrl });
+      showToast('Retry complete', 'success');
+      await loadPipeline();
+    } catch (e) { showToast('Retry failed: ' + e.message, 'danger'); }
+  }
+
+  async function deleteEntry(id) {
+    try {
+      await api('DELETE', `/pipeline/${id}`);
+      showToast('Deleted', 'success');
+      await loadPipeline();
+    } catch (e) {
+      showToast('Delete failed (may be in streaming buffer, try again in 30min): ' + e.message, 'warning');
+    }
+  }
+
+  function esc(s) { if (!s) return ''; const d=document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
+</script>
+{{ end }}

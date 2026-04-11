@@ -1,0 +1,1905 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-clipboard2-data me-2"></i>{{ .Title }}</h2>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-primary" id="btn-seed" onclick="seedCards()">
+      <i class="bi bi-plus-circle me-1"></i>Seed New Certs
+    </button>
+    <button class="btn btn-sm btn-outline-info" id="btn-batch-edge" onclick="batchEdgeScan()">
+      <i class="bi bi-rulers me-1"></i>Batch Edge Scan
+    </button>
+    <button class="btn btn-sm btn-outline-warning" id="btn-batch-llm" onclick="batchLLMScan()">
+      <i class="bi bi-robot me-1"></i>Batch LLM Scan
+    </button>
+    <button class="btn btn-sm btn-outline-success" onclick="runDailyJob()">
+      <i class="bi bi-play-circle me-1"></i>Daily Job
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadCards()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+</div>
+
+<!-- Collapsible cert submission -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-header bg-white border-0 py-2 d-flex align-items-center justify-content-between" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#submit-section">
+    <span class="fw-semibold small"><i class="bi bi-plus-circle me-1"></i>Submit Cert</span>
+    <i class="bi bi-chevron-down small"></i>
+  </div>
+  <div class="collapse" id="submit-section">
+    <div class="card-body pt-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label small fw-medium mb-1">PSA Cert Number</label>
+          <input type="text" class="form-control form-control-sm font-monospace" id="submit-cert-number" placeholder="e.g. 12345678">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-medium mb-1">Role</label>
+          <select class="form-select form-select-sm" id="submit-role">
+            <option value="candidate">Candidate</option>
+            <option value="baseline">Baseline</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-medium mb-1">eBay URL <span class="text-muted">(optional)</span></label>
+          <input type="text" class="form-control form-control-sm" id="submit-ebay-url" placeholder="https://ebay.com/itm/...">
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary btn-sm w-100" id="btn-submit-cert" onclick="submitNewCert()">
+            <i class="bi bi-search me-1"></i>Lookup & Add
+          </button>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-outline-secondary btn-sm w-100" id="btn-batch-submit" onclick="batchSubmitCerts()">
+            <i class="bi bi-list-ol me-1"></i>Batch
+          </button>
+        </div>
+      </div>
+      <!-- Batch input (hidden by default) -->
+      <div class="collapse mt-2" id="batch-input-section">
+        <label class="form-label small fw-medium mb-1">Cert numbers (one per line)</label>
+        <textarea class="form-control form-control-sm font-monospace" id="batch-cert-numbers" rows="4" placeholder="12345678&#10;23456789&#10;34567890"></textarea>
+        <button class="btn btn-primary btn-sm mt-2" onclick="processBatchSubmit()">
+          <i class="bi bi-send me-1"></i>Submit All
+        </button>
+      </div>
+      <div id="submit-status" class="small mt-2 d-none"></div>
+    </div>
+  </div>
+</div>
+
+<p class="text-muted small">
+  LLM-powered card quality analysis. Certs are seeded from scans, analyzed by a daily batch job, then reviewed here.
+</p>
+
+<!-- Filters -->
+<div class="card shadow-sm border-0 mb-3 d-none" id="filters-section">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-medium mb-1">Card Name</label>
+        <input type="text" class="form-control form-control-sm" id="filter-card" placeholder="e.g. Vaporeon" oninput="applyFilters()">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-medium mb-1">Set Code</label>
+        <input type="text" class="form-control form-control-sm" id="filter-set" placeholder="e.g. pre" oninput="applyFilters()">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-medium mb-1">Grade</label>
+        <select class="form-select form-select-sm" id="filter-grade" onchange="applyFilters()">
+          <option value="">All</option>
+          <option value="10">10</option>
+          <option value="9">9</option>
+          <option value="8">8</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-medium mb-1">Game</label>
+        <select class="form-select form-select-sm" id="filter-game" onchange="applyFilters()">
+          <option value="">All</option>
+          <option value="pokemon">Pokemon</option>
+          <option value="mtg">MTG</option>
+          <option value="yugioh">Yu-Gi-Oh!</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">Clear</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Auth guard -->
+<div id="auth-guard" class="alert alert-warning d-none">
+  <i class="bi bi-lock me-1"></i>You must be <a href="{{ "" | relURL }}">signed in</a> to view card analysis.
+</div>
+
+<!-- Status tabs -->
+<ul class="nav nav-tabs mb-3 d-none" id="status-tabs">
+  <li class="nav-item">
+    <a class="nav-link active" href="#" data-status="" onclick="switchTab(this, event)">All</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="#" data-status="pending" onclick="switchTab(this, event)">
+      Pending <span class="badge bg-secondary ms-1" id="count-pending">0</span>
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="#" data-status="batch_pending" onclick="switchTab(this, event)">
+      Batch Pending <span class="badge bg-info ms-1" id="count-batch">0</span>
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="#" data-status="analyzed" onclick="switchTab(this, event)">
+      Needs Review <span class="badge bg-warning text-dark ms-1" id="count-analyzed">0</span>
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="#" data-status="approved" onclick="switchTab(this, event)">
+      Approved <span class="badge bg-success ms-1" id="count-approved">0</span>
+    </a>
+  </li>
+</ul>
+
+<!-- Loading -->
+<div id="loading" class="text-center py-5">
+  <div class="spinner-border text-primary" role="status"></div>
+</div>
+
+<!-- Empty -->
+<div id="empty-state" class="text-center py-5 d-none">
+  <i class="bi bi-clipboard2-data fs-1 text-muted"></i>
+  <p class="text-muted mt-2">No card analyses found. Click "Seed New Certs" to pull in completed scans.</p>
+</div>
+
+<!-- Results table -->
+<div class="card shadow-sm border-0 d-none" id="results-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Cert #</th>
+            <th>Card</th>
+            <th>Scans</th>
+            <th>Grade</th>
+            <th>Front L/R</th>
+            <th>Front T/B</th>
+            <th>Back L/R</th>
+            <th>Back T/B</th>
+            <th>Corners</th>
+            <th>Edges</th>
+            <th>Status</th>
+            <th class="text-end pe-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Batch Jobs panel -->
+<div class="card shadow-sm border-0 mt-3 d-none" id="batch-panel">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="small fw-semibold"><i class="bi bi-collection me-2"></i>LLM Batch Jobs</span>
+    <button class="btn btn-sm btn-outline-secondary py-0" onclick="loadBatches()">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Batch ID</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Progress</th>
+            <th class="text-end pe-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="batches-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Detail modal (summary view) -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0">
+        <h5 class="modal-title" id="detail-title">Card Analysis</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detail-body"></div>
+      <div class="modal-footer border-0" id="detail-footer"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Review modal (interactive canvas) -->
+<div class="modal fade" id="reviewModal" tabindex="-1">
+  <div class="modal-dialog modal-fullscreen">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header border-secondary py-2">
+        <div class="d-flex align-items-center gap-3">
+          <h6 class="modal-title mb-0" id="review-title">Review</h6>
+          <div class="btn-group btn-group-sm" id="review-side-toggle">
+            <button class="btn btn-outline-light active" onclick="switchReviewSide('front')">Front</button>
+            <button class="btn btn-outline-light" onclick="switchReviewSide('back')">Back</button>
+          </div>
+          <div class="btn-group btn-group-sm" id="review-layer-toggle">
+            <button class="btn btn-outline-info active" data-layer="centering" onclick="toggleLayer(this)">Centering</button>
+            <button class="btn btn-outline-warning active" data-layer="corners" onclick="toggleLayer(this)">Corners</button>
+            <button class="btn btn-outline-danger active" data-layer="edges" onclick="toggleLayer(this)">Edges</button>
+            <button class="btn btn-outline-success active" data-layer="surface" onclick="toggleLayer(this)">Surface</button>
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="small text-muted" id="review-zoom-label">100%</span>
+          <button class="btn btn-sm btn-outline-light" onclick="reviewZoomFit()"><i class="bi bi-arrows-fullscreen"></i></button>
+          <button class="btn btn-sm btn-success" id="review-approve-btn" onclick="approveFromReview()">
+            <i class="bi bi-check-lg me-1"></i>Approve
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="addDefectMode()">
+            <i class="bi bi-plus-circle me-1"></i>Add Defect
+          </button>
+          <button class="btn btn-sm btn-outline-light" onclick="saveReviewChanges()">
+            <i class="bi bi-floppy me-1"></i>Save
+          </button>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body p-0 position-relative overflow-hidden" id="review-canvas-wrap" style="cursor:grab">
+        <canvas id="review-canvas" style="position:absolute;top:0;left:0"></canvas>
+      </div>
+      <!-- Line picker panel (bottom-left) -->
+      <div class="position-absolute bottom-0 start-0 m-3 p-2 rounded bg-dark bg-opacity-90 text-light" id="review-info-panel" style="z-index:10;min-width:280px">
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <strong style="font-size:11px">Centering Lines</strong>
+          <span class="text-muted" style="font-size:10px" id="line-selected-label">Click to select</span>
+        </div>
+        <div id="line-picker-grid" style="font-size:11px"></div>
+        <div id="review-centering-info" class="mt-1 border-top border-secondary pt-1" style="font-size:11px"></div>
+      </div>
+      <!-- Defect review panel (right side) -->
+      <div class="position-absolute top-0 end-0 h-100 bg-dark bg-opacity-90 text-light border-start border-secondary" id="defect-panel" style="z-index:10;width:320px;overflow-y:auto">
+        <div class="p-2 border-bottom border-secondary d-flex align-items-center justify-content-between">
+          <strong class="small">Defects</strong>
+          <div class="d-flex gap-1">
+            <button class="btn btn-xs btn-outline-danger" onclick="denyAllDefects()" style="font-size:11px;padding:2px 6px">Deny All</button>
+            <button class="btn btn-xs btn-outline-light" onclick="toggleDefectPanel()" style="font-size:11px;padding:2px 6px"><i class="bi bi-x"></i></button>
+          </div>
+        </div>
+        <div id="defect-list" class="p-1"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  let allCards = [];
+  let currentStatus = '';
+  const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+  const reviewModal = new bootstrap.Modal(document.getElementById('reviewModal'));
+
+  // ── Review state ───────────────────────────────────────────────────────
+  let rv = {
+    card: null,           // current card_analysis row
+    side: 'front',        // 'front' or 'back'
+    img: null,            // loaded Image object
+    imgW: 0, imgH: 0,
+    zoom: 1, panX: 0, panY: 0,
+    layers: { centering: true, corners: true, edges: true, surface: true },
+    dragging: null,       // {type, key, startX, startY, origVal}
+    isPanning: false, panStartX: 0, panStartY: 0, panOrigX: 0, panOrigY: 0,
+    addingDefect: false,
+    dirty: false,
+    highlightedDefect: null,  // {key, index} of focused defect
+    // Editable centering lines (copied from card data, modified by user)
+    lines: {},            // { front_lr_top_pixels: {card_edge_left, art_edge_left, ...}, ... }
+    // Editable defects (copied from card data)
+    defects: {},          // { front_tl_defects: [{x,y,severity,description,status}], ... }
+  };
+  const canvas = document.getElementById('review-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // PSA crop percentages
+  const CROP = { left: 0.095, right: 0.095, top: 0.26, bottom: 0.0715 };
+
+  // ── List page logic ────────────────────────────────────────────────────
+  if (!window._firebaseReady) {
+    document.getElementById('loading').classList.add('d-none');
+    document.getElementById('auth-guard').classList.remove('d-none');
+  } else {
+    firebase.auth().onAuthStateChanged(async user => {
+      if (!user) {
+        document.getElementById('loading').classList.add('d-none');
+        document.getElementById('auth-guard').classList.remove('d-none');
+        return;
+      }
+      document.getElementById('status-tabs').classList.remove('d-none');
+      document.getElementById('filters-section').classList.remove('d-none');
+      await loadCards();
+      loadBatches();
+    });
+  }
+
+  async function loadCards() {
+    document.getElementById('loading').classList.remove('d-none');
+    document.getElementById('results-card').classList.add('d-none');
+    document.getElementById('empty-state').classList.add('d-none');
+    try {
+      // Always fetch all, filter client-side (server doesn't know batch_pending)
+      const serverStatus = (currentStatus && currentStatus !== 'batch_pending') ? `?status=${currentStatus}` : '';
+      allCards = await api('GET', '/card-analysis' + serverStatus) || [];
+      document.getElementById('loading').classList.add('d-none');
+      updateCounts();
+      applyFilters();
+    } catch (e) {
+      document.getElementById('loading').classList.add('d-none');
+      showToast('Failed to load: ' + e.message, 'danger');
+    }
+  }
+
+  async function updateCounts() {
+    try {
+      const all = await api('GET', '/card-analysis') || [];
+      document.getElementById('count-pending').textContent = all.filter(c => !c.analyzed_at && !c.batch_id).length;
+      document.getElementById('count-batch').textContent = all.filter(c => !c.analyzed_at && c.batch_id).length;
+      document.getElementById('count-analyzed').textContent = all.filter(c => c.analyzed_at && !c.approved_at).length;
+      document.getElementById('count-approved').textContent = all.filter(c => c.approved_at).length;
+    } catch (_) {}
+  }
+
+  function switchTab(el, e) {
+    e.preventDefault();
+    document.querySelectorAll('#status-tabs .nav-link').forEach(l => l.classList.remove('active'));
+    el.classList.add('active');
+    currentStatus = el.dataset.status;
+    loadCards();
+  }
+
+  async function seedCards() {
+    const btn = document.getElementById('btn-seed');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Seeding...';
+    try {
+      const result = await api('POST', '/card-analysis/seed');
+      showToast(`Seeded ${result.rows_inserted} new cert(s)`, 'success');
+      await loadCards();
+    } catch (e) { showToast('Seed failed: ' + e.message, 'danger'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-plus-circle me-1"></i>Seed New Certs'; }
+  }
+
+  // ── Filters ─────────────────────────────────────────────────────────────
+  function applyFilters() {
+    const cardFilter = (document.getElementById('filter-card')?.value || '').toLowerCase();
+    const setFilter = (document.getElementById('filter-set')?.value || '').toLowerCase();
+    const gradeFilter = document.getElementById('filter-grade')?.value || '';
+    const gameFilter = document.getElementById('filter-game')?.value || '';
+
+    const filtered = allCards.filter(c => {
+      if (cardFilter && !(c.card_name || '').toLowerCase().includes(cardFilter)) return false;
+      if (setFilter && !(c.set_code || '').toLowerCase().includes(setFilter)) return false;
+      if (gradeFilter && c.grade !== gradeFilter) return false;
+      if (gameFilter && c.game !== gameFilter) return false;
+      // Status tab filter (batch_pending is client-side only)
+      if (currentStatus === 'batch_pending' && getStatus(c) !== 'batch_pending') return false;
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      document.getElementById('results-card').classList.add('d-none');
+      document.getElementById('empty-state').classList.remove('d-none');
+    } else {
+      document.getElementById('empty-state').classList.add('d-none');
+      renderCards(filtered);
+    }
+  }
+
+  function clearFilters() {
+    document.getElementById('filter-card').value = '';
+    document.getElementById('filter-set').value = '';
+    document.getElementById('filter-grade').value = '';
+    document.getElementById('filter-game').value = '';
+    applyFilters();
+  }
+
+  // ── Daily job ───────────────────────────────────────────────────────────
+  async function runDailyJob() {
+    if (!confirm('Run the full daily pipeline? This will:\n1. Collect previous batch results\n2. Process eBay queue\n3. Fetch missing scans\n4. Seed new certs\n5. Submit Claude batch')) return;
+    showToast('Running daily job (this may take a few minutes)...', 'info');
+    try {
+      const result = await api('POST', '/pipeline/daily-job');
+      let msg = 'Daily job complete:\n';
+      (result.steps || []).forEach(s => { msg += `  ${s.step}: ${s.status} — ${s.message}\n`; });
+      showToast(msg, 'success');
+      await loadCards();
+    } catch (e) { showToast('Daily job failed: ' + e.message, 'danger'); }
+  }
+
+  // ── Cert submission ─────────────────────────────────────────────────────
+  async function submitNewCert() {
+    const certNum = document.getElementById('submit-cert-number').value.trim();
+    if (!certNum || !/^\d{7,10}$/.test(certNum)) {
+      showToast('Enter a valid cert number (7-10 digits)', 'warning');
+      return;
+    }
+    const role = document.getElementById('submit-role').value;
+    const ebayUrl = document.getElementById('submit-ebay-url').value.trim();
+    const statusEl = document.getElementById('submit-status');
+    const btn = document.getElementById('btn-submit-cert');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    statusEl.className = 'small mt-2 text-info';
+    statusEl.textContent = 'Looking up cert via PSA proxy...';
+
+    try {
+      // Step 1: PSA lookup via proxy (uses the pipeline's process-queue which calls the proxy)
+      // Simpler: use the pipeline endpoint which does lookup + catalog + scan upload + seed
+      statusEl.textContent = 'Processing cert (PSA lookup + scan fetch + catalog)...';
+      await api('POST', '/pipeline/ebay-url', { url: `https://manual-submit/${certNum}` });
+
+      // Actually, let's use a more direct approach: call the proxy, then catalog
+      // The pipeline endpoint expects an eBay URL. Let's create a dedicated endpoint instead.
+      // For now: use the existing submit flow
+      const proxyUrl = document.body.dataset.backendUrl.replace(/\/$/, '');
+
+      // Step 1: PSA lookup
+      statusEl.textContent = 'PSA lookup...';
+      const lookupResp = await api('GET', `/certs/${certNum}/lookup`);
+
+      // Step 2: Catalog cert
+      statusEl.textContent = 'Cataloging cert...';
+      const body = {
+        game: lookupResp.game || 'pokemon',
+        era: lookupResp.era || '',
+        set_code: lookupResp.set_code || '',
+        card_number: lookupResp.card_number || '',
+        card_name: lookupResp.card_name || '',
+        rarity: lookupResp.rarity || '',
+        treatment: lookupResp.treatment || 'base',
+        grading_company: lookupResp.grading_company || 'PSA',
+        grade: lookupResp.grade || '9',
+        role: role,
+        ebay_url: ebayUrl,
+      };
+      if (lookupResp.tcgplayer_id) body.tcgplayer_id = lookupResp.tcgplayer_id;
+      await api('POST', `/certs/${certNum}/fetch`, body);
+
+      // Step 3: Upload scans if proxy returned them
+      if (lookupResp.scans && lookupResp.scans.length >= 2) {
+        statusEl.textContent = 'Uploading scans...';
+        const formData = new FormData();
+        formData.append('game', body.game);
+        formData.append('set_code', body.set_code);
+        formData.append('card_number', body.card_number);
+        formData.append('grading_company', body.grading_company);
+        formData.append('grade', body.grade);
+
+        for (let i = 0; i < Math.min(lookupResp.scans.length, 2); i++) {
+          const scan = lookupResp.scans[i];
+          const side = i === 0 ? 'front' : 'back';
+          const byteStr = atob(scan.data);
+          const bytes = new Uint8Array(byteStr.length);
+          for (let j = 0; j < byteStr.length; j++) bytes[j] = byteStr.charCodeAt(j);
+          formData.append(side, new Blob([bytes], { type: 'image/jpeg' }), `${side}.jpg`);
+        }
+
+        const token = await firebase.auth().currentUser.getIdToken();
+        await fetch(`${proxyUrl}/certs/${certNum}/upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData,
+        });
+      }
+
+      // Step 4: Seed into card_analysis
+      statusEl.textContent = 'Seeding into card analysis...';
+      await api('POST', '/card-analysis/seed');
+
+      statusEl.className = 'small mt-2 text-success';
+      statusEl.textContent = `Cert ${certNum} (${lookupResp.card_name || '?'} ${lookupResp.grade || '?'}) added successfully!`;
+      document.getElementById('submit-cert-number').value = '';
+      document.getElementById('submit-ebay-url').value = '';
+      await loadCards();
+    } catch (e) {
+      statusEl.className = 'small mt-2 text-danger';
+      statusEl.textContent = `Failed: ${e.message}`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-search me-1"></i>Lookup & Add';
+    }
+  }
+
+  function batchSubmitCerts() {
+    const section = document.getElementById('batch-input-section');
+    section.classList.toggle('show');
+  }
+
+  async function processBatchSubmit() {
+    const text = document.getElementById('batch-cert-numbers').value.trim();
+    const certs = text.split('\n').map(s => s.trim()).filter(s => /^\d{7,10}$/.test(s));
+    if (certs.length === 0) { showToast('Enter valid cert numbers', 'warning'); return; }
+
+    const statusEl = document.getElementById('submit-status');
+    statusEl.className = 'small mt-2 text-info';
+
+    for (let i = 0; i < certs.length; i++) {
+      statusEl.textContent = `Processing ${i+1}/${certs.length}: ${certs[i]}...`;
+      document.getElementById('submit-cert-number').value = certs[i];
+      try {
+        await submitNewCert();
+      } catch (e) {
+        statusEl.textContent += ` (failed: ${e.message})`;
+      }
+    }
+    statusEl.className = 'small mt-2 text-success';
+    statusEl.textContent = `Batch complete: ${certs.length} certs processed`;
+    document.getElementById('batch-cert-numbers').value = '';
+  }
+
+  function renderCards(cards) {
+    document.getElementById('empty-state').classList.add('d-none');
+    document.getElementById('results-card').classList.remove('d-none');
+    document.getElementById('results-tbody').innerHTML = cards.map(c => {
+      const status = getStatus(c);
+      const scores = computeScores(c);
+      return `<tr>
+        <td class="ps-3 font-monospace fw-medium">${esc(c.cert_number)}</td>
+        <td>${esc(c.card_name||'—')}<br><span class="text-muted small">${esc(c.set_code)} ${esc(c.card_number)}</span></td>
+        <td>${scanThumbnails(c)}</td>
+        <td>${gradeBadge(c.grade)}</td>
+        <td>${centeringCell(scores.frontLR, 'front')}</td>
+        <td>${centeringCell(scores.frontTB, 'front')}</td>
+        <td>${centeringCell(scores.backLR, 'back')}</td>
+        <td>${centeringCell(scores.backTB, 'back')}</td>
+        <td>${defectCell(scores.corners)}</td>
+        <td>${defectCell(scores.edges)}</td>
+        <td>${statusBadge(status)}</td>
+        <td class="text-end pe-3 text-nowrap">
+          ${status==='pending'?`<button class="btn btn-sm btn-outline-info me-1" onclick='runEdgeScan("${c.cert_number}",this)' title="Edge detection (free)"><i class="bi bi-rulers"></i></button><button class="btn btn-sm btn-outline-warning me-1" onclick='runLLMScan("${c.cert_number}",this)' title="Full LLM analysis"><i class="bi bi-robot"></i></button>`:''}
+          <button class="btn btn-sm btn-outline-primary" onclick='openReview("${c.cert_number}")'><i class="bi bi-eye"></i></button>
+          ${c.ebay_url ? `<a href="${esc(c.ebay_url)}" target="_blank" class="btn btn-sm btn-outline-success ms-1" title="Buy on eBay"><i class="bi bi-cart"></i></a>` : ''}
+          ${status==='analyzed'?`<button class="btn btn-sm btn-success ms-1" onclick='approveCard("${c.cert_number}")'><i class="bi bi-check-lg"></i></button>`:''}
+        </td></tr>`;
+    }).join('');
+  }
+
+  function scanThumbnails(c) {
+    const backendUrl = document.body.dataset.backendUrl.replace(/\/$/, '');
+    const front = c.gcs_front_path ? `${backendUrl}/scans/${c.gcs_front_path}` : null;
+    const back = c.gcs_back_path ? `${backendUrl}/scans/${c.gcs_back_path}` : null;
+    if (!front && !back) return `<button class="btn btn-sm btn-outline-primary" onclick='fetchScans("${c.cert_number}",this)' title="Fetch scans from PSA"><i class="bi bi-download me-1"></i>Fetch</button>`;
+    let html = '<div class="d-flex gap-1 align-items-center">';
+    if (front) html += `<img src="${front}" style="height:40px;width:auto;border-radius:3px" title="Front" onerror="this.outerHTML='<span class=\\'badge bg-danger\\'>F</span>'">`;
+    else html += '<span class="badge bg-secondary">F</span>';
+    if (back) html += `<img src="${back}" style="height:40px;width:auto;border-radius:3px" title="Back" onerror="this.outerHTML='<span class=\\'badge bg-danger\\'>B</span>'">`;
+    else html += '<span class="badge bg-secondary">B</span>';
+    html += '</div>';
+    return html;
+  }
+
+  async function fetchScans(certNumber, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      // Use the pipeline's processPipelineCert which does PSA lookup + scan upload via proxy
+      // Simpler: call the proxy directly, then upload
+      const c = allCards.find(x => x.cert_number === certNumber);
+      const backendUrl = document.body.dataset.backendUrl.replace(/\/$/, '');
+
+      // Step 1: PSA lookup via backend (which calls proxy)
+      const lookupResp = await api('GET', `/certs/${certNumber}/lookup`);
+      if (!lookupResp.scans || lookupResp.scans.length < 2) {
+        showToast('PSA lookup returned no scans', 'warning');
+        return;
+      }
+
+      // Step 2: Upload scans
+      const formData = new FormData();
+      formData.append('game', c?.game || lookupResp.game || 'pokemon');
+      formData.append('set_code', c?.set_code || lookupResp.set_code || '');
+      formData.append('card_number', c?.card_number || lookupResp.card_number || '');
+      formData.append('grading_company', c?.grading_company || lookupResp.grading_company || 'PSA');
+      formData.append('grade', c?.grade || lookupResp.grade || '9');
+
+      for (let i = 0; i < Math.min(lookupResp.scans.length, 2); i++) {
+        const scan = lookupResp.scans[i];
+        const side = i === 0 ? 'front' : 'back';
+        const byteStr = atob(scan.data);
+        const bytes = new Uint8Array(byteStr.length);
+        for (let j = 0; j < byteStr.length; j++) bytes[j] = byteStr.charCodeAt(j);
+        formData.append(side, new Blob([bytes], { type: 'image/jpeg' }), `${side}.jpg`);
+      }
+
+      const token = await firebase.auth().currentUser.getIdToken();
+      await fetch(`${backendUrl}/certs/${certNumber}/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+
+      showToast(`Scans fetched for ${certNumber}`, 'success');
+      await loadCards();
+    } catch (e) {
+      showToast('Fetch scans failed: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-download me-1"></i>Fetch';
+    }
+  }
+
+  function getStatus(c) {
+    if (c.approved_at) return 'approved';
+    if (c.analyzed_at) return 'analyzed';
+    if (c.batch_id) return 'batch_pending';
+    return 'pending';
+  }
+  function statusBadge(s) {
+    switch(s) {
+      case 'pending': return '<span class="badge bg-secondary">Pending</span>';
+      case 'batch_pending': return '<span class="badge bg-info">Batch Pending</span>';
+      case 'analyzed': return '<span class="badge bg-warning text-dark">Needs Review</span>';
+      case 'approved': return '<span class="badge bg-success">Approved</span>';
+    }
+  }
+  function gradeBadge(g) { const c={'10':'success','9.5':'info','9':'primary','8.5':'warning','8':'warning','7':'danger'}; return `<span class="badge bg-${c[g]||'secondary'}">${esc(g)}</span>`; }
+
+  // ── Scoring logic ──────────────────────────────────────────────────────
+
+  // Parse ratio string "55/45" → returns the larger number (55)
+  function parseLarger(ratio) {
+    if (!ratio) return null;
+    const parts = ratio.split('/').map(Number);
+    return Math.max(...parts);
+  }
+
+  // For an axis (LR or TB), take the worse of the two measurements
+  function worstRatio(r1, r2) {
+    const v1 = parseLarger(r1), v2 = parseLarger(r2);
+    if (v1 === null && v2 === null) return null;
+    if (v1 === null) return v2;
+    if (v2 === null) return v1;
+    return Math.max(v1, v2);
+  }
+
+  // Count defects from the saved defects JSON arrays (respects rejected status)
+  function countDefectsFromArrays(c, keys) {
+    let micro = 0, minor = 0, major = 0;
+    keys.forEach(key => {
+      let arr = [];
+      const raw = c[key];
+      if (raw) { try { arr = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(_){} }
+      arr.forEach(d => {
+        if (d.severity === 'microscopic') micro++;
+        else if (d.severity === 'minor') minor++;
+        else if (d.severity === 'major') major++;
+      });
+    });
+    return { micro, minor, major };
+  }
+
+  function computeScores(c) {
+    // Centering: worst of top/bot for LR, worst of left/right for TB
+    const frontLR = worstRatio(c.front_lr_top_ratio, c.front_lr_bot_ratio);
+    const frontTB = worstRatio(c.front_tb_left_ratio, c.front_tb_right_ratio);
+    const backLR = worstRatio(c.back_lr_top_ratio, c.back_lr_bot_ratio);
+    const backTB = worstRatio(c.back_tb_left_ratio, c.back_tb_right_ratio);
+
+    // Defects from saved arrays (not whitening_* counts which are LLM originals)
+    const cornerKeys = [];
+    const edgeKeys = [];
+    ['front','back'].forEach(side => {
+      ['tl','tr','bl','br'].forEach(p => cornerKeys.push(`${side}_${p}_defects`));
+      ['top','bot','left','right'].forEach(p => edgeKeys.push(`${side}_${p}_edge_defects`));
+    });
+
+    return {
+      frontLR, frontTB, backLR, backTB,
+      corners: countDefectsFromArrays(c, cornerKeys),
+      edges: countDefectsFromArrays(c, edgeKeys),
+    };
+  }
+
+  // Centering color: front thresholds vs back thresholds
+  // val = the larger side (e.g., 55 from "55/45")
+  function centeringColor(val, side) {
+    if (val === null) return 'muted';
+    if (side === 'front') {
+      if (val >= 47 && val <= 52) return 'success';    // green: tight centering
+      if (val < 45 || val > 55) return 'danger';        // red: clearly off
+      return 'warning';                                  // yellow: borderline
+    } else {
+      if (val >= 45 && val <= 55) return 'success';
+      if (val < 40 || val > 60) return 'danger';
+      return 'warning';
+    }
+  }
+
+  function centeringCell(val, side) {
+    if (val === null) return '<span class="text-muted">—</span>';
+    const color = centeringColor(val, side);
+    const other = 100 - val;
+    return `<span class="text-${color} fw-medium small">${val}/${other}</span>`;
+  }
+
+  // Defect scoring:
+  // 5+ micro → drop, 2+ minor → drop, 1+ major → drop
+  // Any non-zero that doesn't drop → yellow
+  function defectColor(d) {
+    const drops = (d.micro >= 5 ? 1 : 0) + (d.minor >= 2 ? 1 : 0) + (d.major >= 1 ? 1 : 0);
+    if (drops > 0) return 'danger';
+    if (d.micro > 0 || d.minor > 0) return 'warning';
+    return 'success';
+  }
+
+  function defectCell(d) {
+    const total = d.micro + d.minor + d.major;
+    const color = defectColor(d);
+    if (total === 0) return `<span class="text-success fw-medium small">0</span>`;
+    const parts = [];
+    if (d.major > 0) parts.push(`${d.major} major`);
+    if (d.minor > 0) parts.push(`${d.minor} minor`);
+    if (d.micro > 0) parts.push(`${d.micro} micro`);
+    return `<span class="text-${color} fw-medium small">${parts.join(', ')}</span>`;
+  }
+
+  async function approveCard(certNumber) {
+    try {
+      await api('POST', `/card-analysis/${certNumber}/approve`, { approved_by: firebase.auth().currentUser?.email||'unknown' });
+      showToast(`Cert ${certNumber} approved`, 'success');
+      reviewModal.hide(); detailModal.hide();
+      await loadCards();
+    } catch (e) { showToast('Approve failed: ' + e.message, 'danger'); }
+  }
+
+  function esc(s) { if (!s) return ''; const d=document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
+
+  // ── Review modal ───────────────────────────────────────────────────────
+
+  async function openReview(certNumber) {
+    // Always fetch fresh data from the API
+    let c;
+    try {
+      c = await api('GET', `/card-analysis/${certNumber}`);
+    } catch (e) {
+      c = allCards.find(x => x.cert_number === certNumber);
+    }
+    if (!c) return;
+
+    // Update the local cache too
+    const idx = allCards.findIndex(x => x.cert_number === certNumber);
+    if (idx >= 0) allCards[idx] = c;
+
+    rv.card = c;
+    rv.side = 'front';
+    rv.dirty = false;
+    rv.addingDefect = false;
+    rv.needsScaling = {}; // track which sides need one-time Claude→image scaling
+
+    // Copy editable centering lines from card data
+    rv.lines = {};
+    const positions = ['lr_top','lr_bot','tb_left','tb_right'];
+    ['front','back'].forEach(side => {
+      positions.forEach(pos => {
+        const key = `${side}_${pos}_pixels`;
+        const raw = c[key];
+        if (raw) {
+          try { rv.lines[key] = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(_) {}
+        }
+      });
+      // Check if already in image pixels (has _scaled flag) or needs conversion
+      const checkKey = `${side}_lr_top_pixels`;
+      const px = rv.lines[checkKey];
+      rv.needsScaling[side] = px && !px._scaled;
+    });
+
+    // Copy editable defects
+    rv.defects = {};
+    ['front','back'].forEach(side => {
+      ['tl','tr','bl','br'].forEach(pos => {
+        const key = `${side}_${pos}_defects`;
+        const raw = c[key];
+        if (raw) { try { rv.defects[key] = (typeof raw==='string'?JSON.parse(raw):raw).map(d=>({...d, status:'pending'})); } catch(_){} }
+        else { rv.defects[key] = []; }
+      });
+      ['top','bot','left','right'].forEach(pos => {
+        const key = `${side}_${pos}_edge_defects`;
+        const raw = c[key];
+        if (raw) { try { rv.defects[key] = (typeof raw==='string'?JSON.parse(raw):raw).map(d=>({...d, status:'pending'})); } catch(_){} }
+        else { rv.defects[key] = []; }
+      });
+      // Surface defects
+      const surfKey = `${side}_surface_defects`;
+      const surfRaw = c[surfKey];
+      if (surfRaw) { try { rv.defects[surfKey] = (typeof surfRaw==='string'?JSON.parse(surfRaw):surfRaw).map(d=>({...d, status:'pending'})); } catch(_){} }
+      else { rv.defects[surfKey] = []; }
+    });
+
+    document.getElementById('review-title').textContent = `${c.card_name||'Card'} — ${c.cert_number}`;
+    updateSideToggle();
+    reviewModal.show();
+
+    // Wait for modal to be visible, then load image
+    setTimeout(() => loadReviewImage(), 200);
+  }
+
+  function updateSideToggle() {
+    document.querySelectorAll('#review-side-toggle .btn').forEach(b => {
+      b.classList.toggle('active', b.textContent.trim().toLowerCase() === rv.side);
+    });
+  }
+
+  function switchReviewSide(side) {
+    rv.side = side;
+    updateSideToggle();
+    loadReviewImage();
+  }
+
+  function toggleLayer(btn) {
+    const layer = btn.dataset.layer;
+    rv.layers[layer] = !rv.layers[layer];
+    btn.classList.toggle('active', rv.layers[layer]);
+    drawReview();
+  }
+
+  async function loadReviewImage() {
+    const c = rv.card;
+    const backendUrl = document.body.dataset.backendUrl.replace(/\/$/, '');
+    const path = rv.side === 'front' ? c.gcs_front_path : c.gcs_back_path;
+    if (!path) return;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = `${backendUrl}/scans/${path}`;
+    });
+
+    rv.img = img;
+    // Compute cropped dimensions
+    rv.fullW = img.naturalWidth;
+    rv.fullH = img.naturalHeight;
+    rv.cropL = Math.round(rv.fullW * CROP.left);
+    rv.cropT = Math.round(rv.fullH * CROP.top);
+    rv.cropR = Math.round(rv.fullW * (1 - CROP.right));
+    rv.cropB = Math.round(rv.fullH * (1 - CROP.bottom));
+    rv.imgW = rv.cropR - rv.cropL;
+    rv.imgH = rv.cropB - rv.cropT;
+
+    // ONE-TIME scaling: convert Claude's internal coords → actual image pixels.
+    // After this, all values in rv.lines are in image pixel space. No more sx()/sy().
+    const side = rv.side;
+    if (rv.needsScaling[side]) {
+      // Determine Claude's perceived image dimensions
+      let claudeW = rv.imgW, claudeH = rv.imgH;
+      const lrPx = rv.lines[`${side}_lr_top_pixels`];
+      if (lrPx?._claude_img_width) { claudeW = lrPx._claude_img_width; claudeH = lrPx._claude_img_height; }
+      else if (lrPx?.card_edge_left != null && lrPx?.card_edge_right != null) {
+        claudeW = (lrPx.card_edge_right - lrPx.card_edge_left) / 0.965;
+        const tbPx = rv.lines[`${side}_tb_left_pixels`];
+        if (tbPx?.card_edge_top != null && tbPx?.card_edge_bottom != null) {
+          claudeH = (tbPx.card_edge_bottom - tbPx.card_edge_top) / 0.98;
+        }
+      }
+      const scX = rv.imgW / claudeW, scY = rv.imgH / claudeH;
+
+      // Scale all pixel values to image space
+      const positions = ['lr_top','lr_bot','tb_left','tb_right'];
+      positions.forEach(pos => {
+        const key = `${side}_${pos}_pixels`;
+        const px = rv.lines[key];
+        if (!px) return;
+        const xFields = ['card_edge_left','art_edge_left','art_edge_right','card_edge_right'];
+        const yFields = ['card_edge_top','art_edge_top','art_edge_bottom','card_edge_bottom'];
+        xFields.forEach(f => { if (px[f] != null) px[f] = Math.round(px[f] * scX); });
+        yFields.forEach(f => { if (px[f] != null) px[f] = Math.round(px[f] * scY); });
+        px._scaled = true; // mark as already in image pixels
+      });
+
+      // Scale defect coordinates too
+      [...['tl','tr','bl','br'].map(p => `${side}_${p}_defects`),
+       ...['top','bot','left','right'].map(p => `${side}_${p}_edge_defects`),
+       `${side}_surface_defects`].forEach(key => {
+        (rv.defects[key] || []).forEach(d => {
+          if (d.x != null) d.x = Math.round(d.x * scX);
+          if (d.y != null) d.y = Math.round(d.y * scY);
+        });
+      });
+
+      rv.needsScaling[side] = false;
+    }
+
+    reviewZoomFit();
+  }
+
+  function reviewZoomFit() {
+    const wrap = document.getElementById('review-canvas-wrap');
+    const wW = wrap.clientWidth, wH = wrap.clientHeight;
+    rv.zoom = Math.min(wW / rv.imgW, wH / rv.imgH, 1);
+    rv.panX = (wW - rv.imgW * rv.zoom) / 2;
+    rv.panY = (wH - rv.imgH * rv.zoom) / 2;
+    resizeCanvas();
+    drawReview();
+  }
+
+  function resizeCanvas() {
+    const wrap = document.getElementById('review-canvas-wrap');
+    canvas.width = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
+    document.getElementById('review-zoom-label').textContent = `${Math.round(rv.zoom * 100)}%`;
+  }
+
+  // ── Drawing ────────────────────────────────────────────────────────────
+
+  function drawReview() {
+    if (!rv.img) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(rv.panX, rv.panY);
+    ctx.scale(rv.zoom, rv.zoom);
+
+    // Draw cropped card image
+    ctx.drawImage(rv.img, rv.cropL, rv.cropT, rv.imgW, rv.imgH, 0, 0, rv.imgW, rv.imgH);
+
+    if (rv.layers.centering) drawCenteringLines();
+    if (rv.layers.corners) drawDefects('corner');
+    if (rv.layers.edges) drawDefects('edge');
+    if (rv.layers.surface) drawSurfaceDefects();
+
+    ctx.restore();
+    updateInfoPanel();
+  }
+
+  // No-op: all coords are now in image pixel space after one-time scaling on load
+  function sx(v) { return v; }
+  function sy(v) { return v; }
+
+  // All handle positions — built once per draw, used for hit-testing
+  rv.handles = [];
+
+  function drawCenteringLines() {
+    const side = rv.side;
+    rv.handles = []; // reset
+
+    const lrTop = rv.lines[`${side}_lr_top_pixels`];
+    const lrBot = rv.lines[`${side}_lr_bot_pixels`];
+    const tbLeft = rv.lines[`${side}_tb_left_pixels`];
+    const tbRight = rv.lines[`${side}_tb_right_pixels`];
+    const lrTopKey = `${side}_lr_top_pixels`, lrBotKey = `${side}_lr_bot_pixels`;
+    const tbLeftKey = `${side}_tb_left_pixels`, tbRightKey = `${side}_tb_right_pixels`;
+
+    // ── Card edges (red angled lines with handles at each endpoint) ──
+    if (lrTop && lrBot) {
+      // Left card edge
+      const lxT = sx(lrTop.card_edge_left||0), lxB = sx(lrBot.card_edge_left||0);
+      const leftAnySel = isLineSelected(lrTopKey,'card_edge_left') || isLineSelected(lrBotKey,'card_edge_left');
+      drawAngledLine(lxT, 0, lxB, rv.imgH, leftAnySel?'#ffffff':'rgba(255,0,0,0.6)', leftAnySel?3:1.5);
+      addHandle(lxT, rv.imgH*0.15, lrTopKey, 'card_edge_left', 'v', 'red');
+      addHandle(lxB, rv.imgH*0.85, lrBotKey, 'card_edge_left', 'v', 'red');
+
+      // Right card edge
+      const rxT = sx(lrTop.card_edge_right||0), rxB = sx(lrBot.card_edge_right||0);
+      const rightAnySel = isLineSelected(lrTopKey,'card_edge_right') || isLineSelected(lrBotKey,'card_edge_right');
+      drawAngledLine(rxT, 0, rxB, rv.imgH, rightAnySel?'#ffffff':'rgba(255,0,0,0.6)', rightAnySel?3:1.5);
+      addHandle(rxT, rv.imgH*0.15, lrTopKey, 'card_edge_right', 'v', 'red');
+      addHandle(rxB, rv.imgH*0.85, lrBotKey, 'card_edge_right', 'v', 'red');
+    }
+    if (tbLeft && tbRight) {
+      // Top card edge
+      const tyL = sy(tbLeft.card_edge_top||0), tyR = sy(tbRight.card_edge_top||0);
+      const topAnySel = isLineSelected(tbLeftKey,'card_edge_top') || isLineSelected(tbRightKey,'card_edge_top');
+      drawAngledLine(0, tyL, rv.imgW, tyR, topAnySel?'#ffffff':'rgba(255,0,0,0.6)', topAnySel?3:1.5);
+      addHandle(rv.imgW*0.15, tyL, tbLeftKey, 'card_edge_top', 'h', 'red');
+      addHandle(rv.imgW*0.85, tyR, tbRightKey, 'card_edge_top', 'h', 'red');
+
+      // Bottom card edge
+      const byL = sy(tbLeft.card_edge_bottom||0), byR = sy(tbRight.card_edge_bottom||0);
+      const botAnySel = isLineSelected(tbLeftKey,'card_edge_bottom') || isLineSelected(tbRightKey,'card_edge_bottom');
+      drawAngledLine(0, byL, rv.imgW, byR, botAnySel?'#ffffff':'rgba(255,0,0,0.6)', botAnySel?3:1.5);
+      addHandle(rv.imgW*0.15, byL, tbLeftKey, 'card_edge_bottom', 'h', 'red');
+      addHandle(rv.imgW*0.85, byR, tbRightKey, 'card_edge_bottom', 'h', 'red');
+    }
+
+    // ── Art edges (cyan, per measurement region, with handles) ──
+    const measurements = [
+      { key: lrTopKey, dir: 'lr', yFrom: 0, yTo: rv.imgH*0.4, label: 'LR Top', ratioKey: `${side}_lr_top_ratio` },
+      { key: lrBotKey, dir: 'lr', yFrom: rv.imgH*0.6, yTo: rv.imgH, label: 'LR Bot', ratioKey: `${side}_lr_bot_ratio` },
+      { key: tbLeftKey, dir: 'tb', xFrom: 0, xTo: rv.imgW*0.4, label: 'TB Left', ratioKey: `${side}_tb_left_ratio` },
+      { key: tbRightKey, dir: 'tb', xFrom: rv.imgW*0.6, xTo: rv.imgW, label: 'TB Right', ratioKey: `${side}_tb_right_ratio` },
+    ];
+
+    measurements.forEach(m => {
+      const px = rv.lines[m.key];
+      if (!px) return;
+      const ratio = rv.card[m.ratioKey] || '';
+
+      if (m.dir === 'lr') {
+        const yMid = (m.yFrom + m.yTo) / 2;
+        drawVLineSeg(sx(px.art_edge_left), m.yFrom, m.yTo, 'cyan', 2, m.key, 'art_edge_left');
+        drawVLineSeg(sx(px.art_edge_right), m.yFrom, m.yTo, 'cyan', 2, m.key, 'art_edge_right');
+        addHandle(sx(px.art_edge_left), yMid, m.key, 'art_edge_left', 'v', 'cyan');
+        addHandle(sx(px.art_edge_right), yMid, m.key, 'art_edge_right', 'v', 'cyan');
+        ctx.fillStyle = 'rgba(0,255,255,0.9)';
+        ctx.font = '13px sans-serif';
+        ctx.fillText(`${m.label}: ${ratio}`, sx(px.art_edge_left||0)+4, m.yFrom + 18);
+      } else {
+        const xMid = (m.xFrom + m.xTo) / 2;
+        drawHLineSeg(sy(px.art_edge_top), m.xFrom, m.xTo, 'cyan', 2, m.key, 'art_edge_top');
+        drawHLineSeg(sy(px.art_edge_bottom), m.xFrom, m.xTo, 'cyan', 2, m.key, 'art_edge_bottom');
+        addHandle(xMid, sy(px.art_edge_top), m.key, 'art_edge_top', 'h', 'cyan');
+        addHandle(xMid, sy(px.art_edge_bottom), m.key, 'art_edge_bottom', 'h', 'cyan');
+        ctx.fillStyle = 'rgba(0,255,255,0.9)';
+        ctx.font = '13px sans-serif';
+        ctx.fillText(`${m.label}: ${ratio}`, m.xFrom + 4, sy(px.art_edge_top||0) + 16);
+      }
+    });
+
+    // ── Draw all handles ──
+    rv.handles.forEach(h => {
+      const isSel = isLineSelected(h.lineKey, h.field);
+      const r = (isSel ? 8 : 6) / rv.zoom;
+      // Outer circle
+      ctx.fillStyle = isSel ? '#ffffff' : h.color;
+      ctx.globalAlpha = isSel ? 1.0 : 0.7;
+      ctx.beginPath(); ctx.arc(h.x, h.y, r, 0, Math.PI * 2); ctx.fill();
+      // Border
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = isSel ? '#00ffff' : '#000000';
+      ctx.lineWidth = (isSel ? 2 : 1) / rv.zoom;
+      ctx.beginPath(); ctx.arc(h.x, h.y, r, 0, Math.PI * 2); ctx.stroke();
+    });
+  }
+
+  function addHandle(x, y, lineKey, field, dir, color) {
+    rv.handles.push({ x, y, lineKey, field, dir, color });
+  }
+
+  function drawAngledLine(x1, y1, x2, y2, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width / rv.zoom;
+    ctx.setLineDash([6/rv.zoom, 4/rv.zoom]);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function isLineSelected(lineKey, field) {
+    return rv.selectedLine && rv.selectedLine.lineKey === lineKey && rv.selectedLine.field === field;
+  }
+
+  function drawVLineSeg(x, y1, y2, color, width, lineKey, field) {
+    if (x == null) return;
+    const selected = lineKey && isLineSelected(lineKey, field);
+    ctx.strokeStyle = selected ? '#ffffff' : color;
+    ctx.lineWidth = (selected ? width * 2 : width) / rv.zoom;
+    ctx.setLineDash(selected ? [] : [6/rv.zoom, 4/rv.zoom]);
+    ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawHLineSeg(y, x1, x2, color, width, lineKey, field) {
+    if (y == null) return;
+    const selected = lineKey && isLineSelected(lineKey, field);
+    ctx.strokeStyle = selected ? '#ffffff' : color;
+    ctx.lineWidth = (selected ? width * 2 : width) / rv.zoom;
+    ctx.setLineDash(selected ? [] : [6/rv.zoom, 4/rv.zoom]);
+    ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawVLine(x, color, width) {
+    if (x == null) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width / rv.zoom;
+    ctx.setLineDash([6/rv.zoom, 4/rv.zoom]);
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, rv.imgH); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawHLine(y, color, width) {
+    if (y == null) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width / rv.zoom;
+    ctx.setLineDash([6/rv.zoom, 4/rv.zoom]);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(rv.imgW, y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawDefects(type) {
+    const side = rv.side;
+    const keys = type === 'corner'
+      ? [`${side}_tl_defects`, `${side}_tr_defects`, `${side}_bl_defects`, `${side}_br_defects`]
+      : [`${side}_top_edge_defects`, `${side}_bot_edge_defects`, `${side}_left_edge_defects`, `${side}_right_edge_defects`];
+
+    const severityColors = { microscopic: '#ffff00', minor: '#ff8800', major: '#ff0000' };
+    const severityRadius = { microscopic: 8, minor: 12, major: 18 };
+
+    keys.forEach(key => {
+      const defects = rv.defects[key] || [];
+      defects.forEach((d, i) => {
+        const isRejected = d.status === 'rejected';
+        const isHighlighted = rv.highlightedDefect?.key === key && rv.highlightedDefect?.index === i;
+        if (isRejected && !isHighlighted) return;
+
+        const color = isRejected ? 'rgba(128,128,128,0.4)' : (severityColors[d.severity] || '#ff00ff');
+        const r = (severityRadius[d.severity] || 10) / rv.zoom;
+        const dx = sx(d.x), dy = sy(d.y);
+
+        // Highlight glow
+        if (isHighlighted) {
+          ctx.strokeStyle = 'white';
+          ctx.lineWidth = 4 / rv.zoom;
+          ctx.beginPath(); ctx.arc(dx, dy, r * 1.8, 0, Math.PI * 2); ctx.stroke();
+        }
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = (isRejected ? 1 : 2) / rv.zoom;
+        if (isRejected) ctx.setLineDash([3/rv.zoom, 3/rv.zoom]);
+        ctx.beginPath(); ctx.arc(dx, dy, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = color;
+        ctx.font = `${Math.max(10, 12/rv.zoom)}px sans-serif`;
+        ctx.fillText(d.severity[0].toUpperCase(), dx + r + 2, dy - 2);
+      });
+    });
+  }
+
+  function drawSurfaceDefects() {
+    const key = `${rv.side}_surface_defects`;
+    const defects = rv.defects[key] || [];
+    const typeColors = {
+      scratch: '#ff00ff', print_line: '#00ffff', silvering: '#c0c0c0',
+      holo_scratch: '#ff88ff', ink_spot: '#ff8800', dent: '#ffff00',
+      roller_line: '#88ff88', whitening: '#ffffff',
+    };
+
+    defects.forEach(d => {
+      if (d.status === 'rejected') return;
+      const color = typeColors[d.type] || '#ff00ff';
+      const r = 14 / rv.zoom;
+      const dx = sx(d.x), dy = sy(d.y);
+
+      // Diamond shape for surface defects (to distinguish from circle corner/edge defects)
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 / rv.zoom;
+      ctx.beginPath();
+      ctx.moveTo(dx, dy - r);
+      ctx.lineTo(dx + r, dy);
+      ctx.lineTo(dx, dy + r);
+      ctx.lineTo(dx - r, dy);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.font = `${Math.max(9, 10/rv.zoom)}px sans-serif`;
+      ctx.fillText(d.type.replace('_', ' '), dx + r + 2, dy - 2);
+    });
+  }
+
+  function updateInfoPanel() {
+    const side = rv.side;
+    const c = rv.card;
+
+    // Centering ratios summary
+    let centerHtml = '';
+    centerHtml += `LR Top: ${c[`${side}_lr_top_ratio`]||'—'} &nbsp; LR Bot: ${c[`${side}_lr_bot_ratio`]||'—'}<br>`;
+    centerHtml += `TB Left: ${c[`${side}_tb_left_ratio`]||'—'} &nbsp; TB Right: ${c[`${side}_tb_right_ratio`]||'—'}`;
+    document.getElementById('review-centering-info').innerHTML = centerHtml;
+
+    // Line picker grid
+    renderLinePicker();
+
+    // Selected line label
+    const sl = rv.selectedLine;
+    document.getElementById('line-selected-label').textContent = sl
+      ? `Selected: ${sl.field.replace(/_/g,' ')}` : 'Click to select · Scroll to nudge';
+
+    renderDefectList();
+  }
+
+  function renderLinePicker() {
+    const side = rv.side;
+    // Lines organized by position with human-readable labels
+    const lines = [
+      { section: 'Card Edges', color: '#ff4444', items: [
+        { label: 'Left (top)', key: `${side}_lr_top_pixels`, field: 'card_edge_left' },
+        { label: 'Left (bot)', key: `${side}_lr_bot_pixels`, field: 'card_edge_left' },
+        { label: 'Right (top)', key: `${side}_lr_top_pixels`, field: 'card_edge_right' },
+        { label: 'Right (bot)', key: `${side}_lr_bot_pixels`, field: 'card_edge_right' },
+        { label: 'Top (left)', key: `${side}_tb_left_pixels`, field: 'card_edge_top' },
+        { label: 'Top (right)', key: `${side}_tb_right_pixels`, field: 'card_edge_top' },
+        { label: 'Bottom (left)', key: `${side}_tb_left_pixels`, field: 'card_edge_bottom' },
+        { label: 'Bottom (right)', key: `${side}_tb_right_pixels`, field: 'card_edge_bottom' },
+      ]},
+      { section: 'Art Edges', color: '#00cccc', items: [
+        { label: 'Left (top)', key: `${side}_lr_top_pixels`, field: 'art_edge_left' },
+        { label: 'Left (bot)', key: `${side}_lr_bot_pixels`, field: 'art_edge_left' },
+        { label: 'Right (top)', key: `${side}_lr_top_pixels`, field: 'art_edge_right' },
+        { label: 'Right (bot)', key: `${side}_lr_bot_pixels`, field: 'art_edge_right' },
+        { label: 'Top (left)', key: `${side}_tb_left_pixels`, field: 'art_edge_top' },
+        { label: 'Top (right)', key: `${side}_tb_right_pixels`, field: 'art_edge_top' },
+        { label: 'Bottom (left)', key: `${side}_tb_left_pixels`, field: 'art_edge_bottom' },
+        { label: 'Bottom (right)', key: `${side}_tb_right_pixels`, field: 'art_edge_bottom' },
+      ]},
+    ];
+
+    let html = '';
+    lines.forEach(group => {
+      html += `<div class="mb-1"><span style="color:${group.color};font-size:10px;font-weight:bold">${group.section}</span></div>`;
+      html += '<div class="d-flex flex-wrap gap-1 mb-2">';
+      group.items.forEach(item => {
+        const px = rv.lines[item.key];
+        const val = px ? px[item.field] : null;
+        const isSel = rv.selectedLine?.lineKey === item.key && rv.selectedLine?.field === item.field;
+        const bg = isSel ? 'btn-light text-dark' : 'btn-outline-secondary';
+        html += `<button class="btn ${bg} p-0 px-1" style="font-size:10px;line-height:1.4"
+          onclick="selectLineFromPicker('${item.key}','${item.field}')"
+          title="${item.field}: ${val ?? '—'}px">
+          ${item.label}${val !== null ? ` <span class="text-muted">${val}</span>` : ''}
+        </button>`;
+      });
+      html += '</div>';
+    });
+    document.getElementById('line-picker-grid').innerHTML = html;
+  }
+
+  function selectLineFromPicker(lineKey, field) {
+    const isSame = rv.selectedLine?.lineKey === lineKey && rv.selectedLine?.field === field;
+    if (isSame) {
+      rv.selectedLine = null;
+      canvas.style.cursor = 'grab';
+    } else {
+      const dir = field.includes('left') || field.includes('right') ? 'v' : 'h';
+      rv.selectedLine = { lineKey, field, dir };
+      canvas.style.cursor = dir === 'v' ? 'ew-resize' : 'ns-resize';
+    }
+    drawReview();
+  }
+
+  // ── Canvas interaction ─────────────────────────────────────────────────
+
+  function canvasToImg(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left - rv.panX) / rv.zoom,
+      y: (clientY - rect.top - rv.panY) / rv.zoom,
+    };
+  }
+
+  // rv.selectedLine: when set, scroll nudges that line instead of zooming
+  // Click a line to select, scroll to nudge, right-click or click elsewhere to deselect
+  rv.selectedLine = null; // {lineKey, field, dir}
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+
+    // If a line is selected, nudge it with scroll
+    if (rv.selectedLine) {
+      const sl = rv.selectedLine;
+      const pixels = rv.lines[sl.lineKey];
+      if (pixels) {
+        const nudge = e.deltaY < 0 ? -1 : 1;
+        pixels[sl.field] = (pixels[sl.field] || 0) + nudge;
+        rv.dirty = true;
+        recalcRatios();
+        drawReview();
+      }
+      return;
+    }
+
+    // Otherwise zoom toward mouse position
+    const pos = canvasToImg(e.clientX, e.clientY);
+    rv.zoom *= e.deltaY < 0 ? 1.15 : 1/1.15;
+    rv.zoom = Math.max(0.1, Math.min(10, rv.zoom));
+    rv.panX = e.clientX - canvas.getBoundingClientRect().left - pos.x * rv.zoom;
+    rv.panY = e.clientY - canvas.getBoundingClientRect().top - pos.y * rv.zoom;
+    document.getElementById('review-zoom-label').textContent = `${Math.round(rv.zoom*100)}%`;
+    drawReview();
+  });
+
+  // Right-click to deselect line
+  canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (rv.selectedLine) {
+      rv.selectedLine = null;
+      canvas.style.cursor = 'grab';
+      drawReview();
+    }
+  });
+
+  canvas.addEventListener('mousedown', e => {
+    if (e.button === 2) return; // handled by contextmenu
+    const pos = canvasToImg(e.clientX, e.clientY);
+
+    // Check if clicking on a centering line
+    const hit = hitTestLine(pos);
+    if (hit) {
+      if (rv.selectedLine && rv.selectedLine.lineKey === hit.lineKey && rv.selectedLine.field === hit.field) {
+        // Clicking the same line again deselects it
+        rv.selectedLine = null;
+        canvas.style.cursor = 'grab';
+      } else {
+        // Select this line — scroll will nudge it
+        rv.selectedLine = hit;
+        canvas.style.cursor = hit.dir === 'v' ? 'ew-resize' : 'ns-resize';
+        // Also allow dragging
+        rv.dragging = hit;
+      }
+      drawReview();
+      return;
+    }
+
+    // Clicking elsewhere deselects the line
+    if (rv.selectedLine) {
+      rv.selectedLine = null;
+      canvas.style.cursor = 'grab';
+      drawReview();
+    }
+
+    // Check if clicking on a defect
+    const defectHit = hitTestDefect(pos);
+    if (defectHit) {
+      showDefectPopup(defectHit, e.clientX, e.clientY);
+      return;
+    }
+
+    // If in add-defect mode, place a new defect
+    if (rv.addingDefect) {
+      placeNewDefect(pos);
+      return;
+    }
+
+    // Otherwise, start panning
+    rv.isPanning = true;
+    rv.panStartX = e.clientX; rv.panStartY = e.clientY;
+    rv.panOrigX = rv.panX; rv.panOrigY = rv.panY;
+    canvas.style.cursor = 'grabbing';
+  });
+
+  canvas.addEventListener('mousemove', e => {
+    if (rv.dragging) {
+      const pos = canvasToImg(e.clientX, e.clientY);
+      const d = rv.dragging;
+      const pixels = rv.lines[d.lineKey];
+      if (pixels) {
+        pixels[d.field] = Math.round(d.dir === 'v' ? pos.x : pos.y);
+        rv.dirty = true;
+        drawReview();
+      }
+      return;
+    }
+    if (rv.isPanning) {
+      rv.panX = rv.panOrigX + (e.clientX - rv.panStartX);
+      rv.panY = rv.panOrigY + (e.clientY - rv.panStartY);
+      drawReview();
+    }
+  });
+
+  canvas.addEventListener('mouseup', () => {
+    if (rv.dragging) { rv.dragging = null; if (!rv.selectedLine) canvas.style.cursor = 'grab'; recalcRatios(); }
+    if (rv.isPanning) { rv.isPanning = false; canvas.style.cursor = 'grab'; }
+  });
+
+  function hitTestLine(pos) {
+    // Check handles first — big clickable targets, no ambiguity
+    const handleRadius = 10 / rv.zoom;
+    for (const h of rv.handles) {
+      const dist = Math.sqrt((pos.x - h.x)**2 + (pos.y - h.y)**2);
+      if (dist < handleRadius) return { lineKey: h.lineKey, field: h.field, dir: h.dir };
+    }
+    return null;
+  }
+
+  function hitTestDefect(pos) {
+    const side = rv.side;
+    const allKeys = [
+      ...['tl','tr','bl','br'].map(p => `${side}_${p}_defects`),
+      ...['top','bot','left','right'].map(p => `${side}_${p}_edge_defects`),
+      `${side}_surface_defects`,
+    ];
+    for (const key of allKeys) {
+      const defects = rv.defects[key] || [];
+      for (let i = 0; i < defects.length; i++) {
+        const d = defects[i];
+        if (d.status === 'rejected') continue;
+        const dist = Math.sqrt((pos.x-sx(d.x))**2 + (pos.y-sy(d.y))**2);
+        if (dist < 20/rv.zoom) return { key, index: i, defect: d };
+      }
+    }
+    return null;
+  }
+
+  function recalcRatios() {
+    const side = rv.side;
+    // Recalculate ratios from adjusted pixel positions (all in Claude coords)
+    ['lr_top','lr_bot'].forEach(pos => {
+      const px = rv.lines[`${side}_${pos}_pixels`];
+      if (!px || px.card_edge_left == null || px.card_edge_right == null) return;
+      const left = Math.round(px.art_edge_left - px.card_edge_left);
+      const right = Math.round(px.card_edge_right - px.art_edge_right);
+      const total = left + right;
+      if (total > 0) {
+        const pctL = Math.round(left/total*100), pctR = 100-pctL;
+        const bigger = Math.max(pctL,pctR), smaller = Math.min(pctL,pctR);
+        rv.card[`${side}_${pos}_ratio`] = `${bigger}/${smaller}`;
+        rv.card[`${side}_${pos}_left_border_px`] = left;
+        rv.card[`${side}_${pos}_right_border_px`] = right;
+      }
+    });
+    ['tb_left','tb_right'].forEach(pos => {
+      const px = rv.lines[`${side}_${pos}_pixels`];
+      if (!px || px.card_edge_top == null || px.card_edge_bottom == null) return;
+      const top = Math.round(px.art_edge_top - px.card_edge_top);
+      const bot = Math.round(px.card_edge_bottom - px.art_edge_bottom);
+      const total = top + bot;
+      if (total > 0) {
+        const pctT = Math.round(top/total*100), pctB = 100-pctT;
+        const bigger = Math.max(pctT,pctB), smaller = Math.min(pctT,pctB);
+        rv.card[`${side}_${pos}_ratio`] = `${bigger}/${smaller}`;
+        rv.card[`${side}_${pos}_top_border_px`] = top;
+        rv.card[`${side}_${pos}_bot_border_px`] = bot;
+      }
+    });
+    drawReview();
+  }
+
+  // ── Defect management ──────────────────────────────────────────────────
+
+  function showDefectPopup(hit, clientX, clientY) {
+    // Highlight the defect and scroll to it in the panel
+    rv.highlightedDefect = { key: hit.key, index: hit.index };
+    drawReview();
+    renderDefectList();
+    const el = document.getElementById(`defect-${hit.key}-${hit.index}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function resolveDefect(key, index, status) {
+    rv.defects[key][index].status = status;
+    rv.dirty = true;
+    rv.highlightedDefect = null;
+    drawReview();
+    renderDefectList();
+  }
+
+  function denyAllDefects() {
+    const side = rv.side;
+    Object.keys(rv.defects).forEach(key => {
+      if (!key.startsWith(side)) return;
+      (rv.defects[key] || []).forEach(d => { if (d.status !== 'approved') d.status = 'rejected'; });
+    });
+    rv.dirty = true;
+    drawReview();
+    renderDefectList();
+    showToast('All defects denied. Add back any true positives.', 'info');
+  }
+
+  function toggleDefectPanel() {
+    const panel = document.getElementById('defect-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  }
+
+  function focusDefect(key, index) {
+    const d = rv.defects[key]?.[index];
+    if (!d) return;
+    rv.highlightedDefect = { key, index };
+    // Pan to the defect
+    const wrap = document.getElementById('review-canvas-wrap');
+    rv.panX = wrap.clientWidth / 2 - sx(d.x) * rv.zoom;
+    rv.panY = wrap.clientHeight / 2 - sy(d.y) * rv.zoom;
+    drawReview();
+    renderDefectList();
+  }
+
+  function renderDefectList() {
+    const side = rv.side;
+    const container = document.getElementById('defect-list');
+    let html = '';
+    let count = 0;
+
+    const categories = [
+      { label: 'Corners', keys: ['tl','tr','bl','br'].map(p => ({ key: `${side}_${p}_defects`, label: p.toUpperCase() })) },
+      { label: 'Edges', keys: ['top','bot','left','right'].map(p => ({ key: `${side}_${p}_edge_defects`, label: p })) },
+      { label: 'Surface', keys: [{ key: `${side}_surface_defects`, label: 'surface' }] },
+    ];
+
+    categories.forEach(cat => {
+      let catDefects = [];
+      cat.keys.forEach(({ key, label }) => {
+        (rv.defects[key] || []).forEach((d, i) => {
+          catDefects.push({ ...d, key, index: i, area: label });
+        });
+      });
+      if (catDefects.length === 0) return;
+
+      html += `<div class="px-2 py-1 text-muted small fw-bold border-bottom border-secondary" style="font-size:10px">${cat.label} (${catDefects.length})</div>`;
+      catDefects.forEach(d => {
+        const isHighlighted = rv.highlightedDefect?.key === d.key && rv.highlightedDefect?.index === d.index;
+        const bgClass = d.status === 'rejected' ? 'opacity-50' : d.status === 'approved' ? '' : '';
+        const borderStyle = isHighlighted ? 'border:1px solid cyan' : '';
+        const sevColor = d.severity === 'major' ? '#ff4444' : '#ff8800';
+        const statusIcon = d.status === 'approved' ? '<i class="bi bi-check-circle-fill text-success"></i>' :
+                          d.status === 'rejected' ? '<i class="bi bi-x-circle-fill text-danger"></i>' : '';
+        count++;
+        html += `
+          <div class="d-flex align-items-start gap-1 px-2 py-1 ${bgClass}" id="defect-${d.key}-${d.index}"
+               style="font-size:11px;cursor:pointer;${borderStyle}" onclick="focusDefect('${d.key}',${d.index})">
+            <div class="flex-grow-1">
+              <span style="color:${sevColor}" class="fw-bold">${d.severity}</span>
+              <span class="text-muted"> ${d.area}</span>
+              ${d.type ? `<span class="text-info"> ${d.type.replace('_',' ')}</span>` : ''}
+              ${statusIcon}
+              <div class="text-muted" style="font-size:10px">${esc(d.description || '')}</div>
+            </div>
+            <div class="d-flex flex-column gap-1 flex-shrink-0">
+              ${d.status !== 'approved' ? `<button class="btn btn-success p-0" style="width:20px;height:20px;font-size:10px" onclick="event.stopPropagation();resolveDefect('${d.key}',${d.index},'approved')"><i class="bi bi-check"></i></button>` : ''}
+              ${d.status !== 'rejected' ? `<button class="btn btn-danger p-0" style="width:20px;height:20px;font-size:10px" onclick="event.stopPropagation();resolveDefect('${d.key}',${d.index},'rejected')"><i class="bi bi-x"></i></button>` : ''}
+            </div>
+          </div>`;
+      });
+    });
+
+    if (count === 0) html = '<div class="p-2 text-muted small">No defects found</div>';
+    container.innerHTML = html;
+  }
+
+  function addDefectMode() {
+    rv.addingDefect = !rv.addingDefect;
+    canvas.style.cursor = rv.addingDefect ? 'crosshair' : 'grab';
+    showToast(rv.addingDefect ? 'Click on the image to place a defect' : 'Add defect mode cancelled', 'info');
+  }
+
+  function placeNewDefect(pos) {
+    const severity = prompt('Severity? (microscopic / minor / major)', 'minor');
+    if (!severity || !['microscopic','minor','major'].includes(severity)) { rv.addingDefect = false; canvas.style.cursor = 'grab'; return; }
+    const description = prompt('Description (optional)', '') || '';
+
+    // Determine which defect array to add to based on position
+    const side = rv.side;
+    let key;
+    const margin = rv.imgW * 0.12;
+    if (pos.x < margin && pos.y < margin) key = `${side}_tl_defects`;
+    else if (pos.x > rv.imgW-margin && pos.y < margin) key = `${side}_tr_defects`;
+    else if (pos.x < margin && pos.y > rv.imgH-margin) key = `${side}_bl_defects`;
+    else if (pos.x > rv.imgW-margin && pos.y > rv.imgH-margin) key = `${side}_br_defects`;
+    else if (pos.y < margin) key = `${side}_top_edge_defects`;
+    else if (pos.y > rv.imgH-margin) key = `${side}_bot_edge_defects`;
+    else if (pos.x < margin) key = `${side}_left_edge_defects`;
+    else if (pos.x > rv.imgW-margin) key = `${side}_right_edge_defects`;
+    else key = `${side}_tl_defects`; // fallback
+
+    if (!rv.defects[key]) rv.defects[key] = [];
+    // Store in Claude coordinate space
+    rv.defects[key].push({ x: Math.round(pos.x), y: Math.round(pos.y), severity, description, status: 'pending' });
+    rv.dirty = true;
+    rv.addingDefect = false;
+    canvas.style.cursor = 'grab';
+    drawReview();
+  }
+
+  // ── Save changes ───────────────────────────────────────────────────────
+
+  async function saveReviewChanges() {
+    if (!rv.dirty) { showToast('No changes to save', 'info'); return; }
+
+    const updates = {};
+    // Save adjusted centering lines
+    Object.keys(rv.lines).forEach(key => {
+      updates[key] = JSON.stringify(rv.lines[key]);
+    });
+    // Save adjusted ratios
+    ['front','back'].forEach(side => {
+      ['lr_top','lr_bot','tb_left','tb_right'].forEach(pos => {
+        const ratio = rv.card[`${side}_${pos}_ratio`];
+        if (ratio) updates[`${side}_${pos}_ratio`] = ratio;
+        ['left_border_px','right_border_px','top_border_px','bot_border_px'].forEach(f => {
+          const v = rv.card[`${side}_${pos}_${f}`];
+          if (v != null) updates[`${side}_${pos}_${f}`] = Math.round(v);
+        });
+      });
+    });
+    // Save defect arrays (only non-rejected)
+    Object.keys(rv.defects).forEach(key => {
+      const active = (rv.defects[key]||[]).filter(d => d.status !== 'rejected').map(({status, ...rest}) => rest);
+      updates[key] = JSON.stringify(active);
+    });
+
+    try {
+      await api('PUT', `/card-analysis/${rv.card.cert_number}`, updates);
+      rv.dirty = false;
+      showToast('Changes saved', 'success');
+    } catch (e) { showToast('Save failed: ' + e.message, 'danger'); }
+  }
+
+  async function approveFromReview() {
+    if (rv.dirty) await saveReviewChanges();
+    await approveCard(rv.card.cert_number);
+  }
+
+  // ── Edge scan (client-side, free) ──────────────────────────────────────
+  // Loads the image, crops to card area, scans pixel brightness to find
+  // card edges and art edges. Same approach as the reference cards page.
+
+  // CROP already defined above — reuse it
+
+  async function runEdgeScan(certNumber, btn) {
+    const c = allCards.find(x => x.cert_number === certNumber);
+    if (!c) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      await runEdgeScanCore(c);
+      showToast(`Edge scan complete for ${certNumber}`, 'success');
+      await loadCards();
+    } catch (e) {
+      showToast('Edge scan failed: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-rulers"></i>';
+    }
+  }
+
+  function detectEdges(imageData, w, h) {
+    const data = imageData.data;
+
+    // Get brightness at a pixel
+    function bright(x, y) {
+      const i = (y * w + x) * 4;
+      return (data[i] + data[i+1] + data[i+2]) / 3;
+    }
+
+    // Scan a row/column for a brightness transition (edge)
+    // Returns the pixel where brightness changes by > threshold
+    function findEdge(getVal, length, fromEnd, threshold) {
+      const start = fromEnd ? length - 1 : 0;
+      const step = fromEnd ? -1 : 1;
+      let prev = getVal(start);
+      for (let i = start + step; i >= 0 && i < length; i += step) {
+        const v = getVal(i);
+        if (Math.abs(v - prev) > threshold) return i;
+        prev = v;
+      }
+      return fromEnd ? 0 : length - 1;
+    }
+
+    // Average brightness across a strip for stability
+    function avgBrightRow(x, yFrom, yTo) {
+      let sum = 0, n = 0;
+      for (let y = yFrom; y < yTo; y += 2) { sum += bright(x, y); n++; }
+      return n > 0 ? sum / n : 0;
+    }
+    function avgBrightCol(y, xFrom, xTo) {
+      let sum = 0, n = 0;
+      for (let x = xFrom; x < xTo; x += 2) { sum += bright(x, y); n++; }
+      return n > 0 ? sum / n : 0;
+    }
+
+    const threshold = 25;
+
+    // LR at top (scan at y = 15% of height)
+    const yTop = Math.round(h * 0.15);
+    const yTopRange = [yTop - 10, yTop + 10];
+    const cardLeft = findEdge(x => avgBrightRow(x, yTopRange[0], yTopRange[1]), w, false, threshold);
+    const cardRight = findEdge(x => avgBrightRow(x, yTopRange[0], yTopRange[1]), w, true, threshold);
+    const artLeft = findEdge(x => avgBrightRow(x, yTopRange[0], yTopRange[1]), w, false, threshold/2);
+    const artRight = findEdge(x => avgBrightRow(x, yTopRange[0], yTopRange[1]), w, true, threshold/2);
+
+    // LR at bottom (scan at y = 85%)
+    const yBot = Math.round(h * 0.85);
+    const yBotRange = [yBot - 10, yBot + 10];
+    const cardLeftBot = findEdge(x => avgBrightRow(x, yBotRange[0], yBotRange[1]), w, false, threshold);
+    const cardRightBot = findEdge(x => avgBrightRow(x, yBotRange[0], yBotRange[1]), w, true, threshold);
+    const artLeftBot = findEdge(x => avgBrightRow(x, yBotRange[0], yBotRange[1]), w, false, threshold/2);
+    const artRightBot = findEdge(x => avgBrightRow(x, yBotRange[0], yBotRange[1]), w, true, threshold/2);
+
+    // TB at left (scan at x = 15%)
+    const xLeft = Math.round(w * 0.15);
+    const xLeftRange = [xLeft - 10, xLeft + 10];
+    const cardTop = findEdge(y => avgBrightCol(y, xLeftRange[0], xLeftRange[1]), h, false, threshold);
+    const cardBottom = findEdge(y => avgBrightCol(y, xLeftRange[0], xLeftRange[1]), h, true, threshold);
+    const artTop = findEdge(y => avgBrightCol(y, xLeftRange[0], xLeftRange[1]), h, false, threshold/2);
+    const artBottom = findEdge(y => avgBrightCol(y, xLeftRange[0], xLeftRange[1]), h, true, threshold/2);
+
+    // TB at right (scan at x = 85%)
+    const xRight = Math.round(w * 0.85);
+    const xRightRange = [xRight - 10, xRight + 10];
+    const cardTopRight = findEdge(y => avgBrightCol(y, xRightRange[0], xRightRange[1]), h, false, threshold);
+    const cardBottomRight = findEdge(y => avgBrightCol(y, xRightRange[0], xRightRange[1]), h, true, threshold);
+    const artTopRight = findEdge(y => avgBrightCol(y, xRightRange[0], xRightRange[1]), h, false, threshold/2);
+    const artBottomRight = findEdge(y => avgBrightCol(y, xRightRange[0], xRightRange[1]), h, true, threshold/2);
+
+    return {
+      cardLeft, artLeft, artRight, cardRight,
+      cardLeftBot, artLeftBot, artRightBot, cardRightBot,
+      cardTop, artTop, artBottom, cardBottom,
+      cardTopRight, artTopRight, artBottomRight, cardBottomRight,
+    };
+  }
+
+  // ── LLM scan (Claude API via backend) ──────────────────────────────────
+
+  async function runLLMScan(certNumber, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      const result = await api('POST', `/card-analysis/${certNumber}/llm-scan`);
+      showToast(`LLM analysis complete for ${certNumber}: grade ${result.overall_grade || '?'}`, 'success');
+      await loadCards();
+    } catch (e) {
+      showToast('LLM scan failed: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-robot"></i>';
+    }
+  }
+
+  // ── Batch operations ───────────────────────────────────────────────────
+
+  async function runEdgeScanCore(c) {
+    const backendUrl = document.body.dataset.backendUrl.replace(/\/$/, '');
+    const updates = {};
+    for (const side of ['front', 'back']) {
+      const path = side === 'front' ? c.gcs_front_path : c.gcs_back_path;
+      if (!path) continue;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = `${backendUrl}/scans/${path}`; });
+      const cvs = document.createElement('canvas');
+      const fullW = img.naturalWidth, fullH = img.naturalHeight;
+      const cl = Math.round(fullW * CROP.left), ct = Math.round(fullH * CROP.top);
+      const cr = Math.round(fullW * (1 - CROP.right)), cb = Math.round(fullH * (1 - CROP.bottom));
+      const cw = cr - cl, ch = cb - ct;
+      cvs.width = cw; cvs.height = ch;
+      const cctx = cvs.getContext('2d');
+      cctx.drawImage(img, cl, ct, cw, ch, 0, 0, cw, ch);
+      const imageData = cctx.getImageData(0, 0, cw, ch);
+      const edges = detectEdges(imageData, cw, ch);
+      const lrTopPx = { card_edge_left: edges.cardLeft, art_edge_left: edges.artLeft, art_edge_right: edges.artRight, card_edge_right: edges.cardRight, _scaled: true };
+      const lrBotPx = { card_edge_left: edges.cardLeftBot, art_edge_left: edges.artLeftBot, art_edge_right: edges.artRightBot, card_edge_right: edges.cardRightBot, _scaled: true };
+      const tbLeftPx = { card_edge_top: edges.cardTop, art_edge_top: edges.artTop, art_edge_bottom: edges.artBottom, card_edge_bottom: edges.cardBottom, _scaled: true };
+      const tbRightPx = { card_edge_top: edges.cardTopRight, art_edge_top: edges.artTopRight, art_edge_bottom: edges.artBottomRight, card_edge_bottom: edges.cardBottomRight, _scaled: true };
+      updates[`${side}_lr_top_pixels`] = JSON.stringify(lrTopPx);
+      updates[`${side}_lr_bot_pixels`] = JSON.stringify(lrBotPx);
+      updates[`${side}_tb_left_pixels`] = JSON.stringify(tbLeftPx);
+      updates[`${side}_tb_right_pixels`] = JSON.stringify(tbRightPx);
+      const lrTopLeft = edges.artLeft - edges.cardLeft, lrTopRight = edges.cardRight - edges.artRight;
+      const lrTopTotal = lrTopLeft + lrTopRight;
+      if (lrTopTotal > 0) { const pL = Math.round(lrTopLeft/lrTopTotal*100); updates[`${side}_lr_top_ratio`] = `${pL}/${100-pL}`; updates[`${side}_lr_top_left_border_px`] = lrTopLeft; updates[`${side}_lr_top_right_border_px`] = lrTopRight; }
+      const lrBotLeft = edges.artLeftBot - edges.cardLeftBot, lrBotRight = edges.cardRightBot - edges.artRightBot;
+      const lrBotTotal = lrBotLeft + lrBotRight;
+      if (lrBotTotal > 0) { const pL = Math.round(lrBotLeft/lrBotTotal*100); updates[`${side}_lr_bot_ratio`] = `${pL}/${100-pL}`; updates[`${side}_lr_bot_left_border_px`] = lrBotLeft; updates[`${side}_lr_bot_right_border_px`] = lrBotRight; }
+      const tbLeftTop = edges.artTop - edges.cardTop, tbLeftBot = edges.cardBottom - edges.artBottom;
+      const tbLeftTotal = tbLeftTop + tbLeftBot;
+      if (tbLeftTotal > 0) { const pT = Math.round(tbLeftTop/tbLeftTotal*100); updates[`${side}_tb_left_ratio`] = `${pT}/${100-pT}`; updates[`${side}_tb_left_top_border_px`] = tbLeftTop; updates[`${side}_tb_left_bot_border_px`] = tbLeftBot; }
+      const tbRightTop = edges.artTopRight - edges.cardTopRight, tbRightBot = edges.cardBottomRight - edges.artBottomRight;
+      const tbRightTotal = tbRightTop + tbRightBot;
+      if (tbRightTotal > 0) { const pT = Math.round(tbRightTop/tbRightTotal*100); updates[`${side}_tb_right_ratio`] = `${pT}/${100-pT}`; updates[`${side}_tb_right_top_border_px`] = tbRightTop; updates[`${side}_tb_right_bot_border_px`] = tbRightBot; }
+    }
+    updates.analyzed_at = new Date().toISOString();
+    updates.model = 'edge-scan-js';
+    await api('PUT', `/card-analysis/${c.cert_number}`, updates);
+  }
+
+  async function batchEdgeScan() {
+    const pending = allCards.filter(c => !c.analyzed_at);
+    if (pending.length === 0) { showToast('No pending cards to scan', 'warning'); return; }
+    const btn = document.getElementById('btn-batch-edge');
+    btn.disabled = true;
+    let done = 0, failed = 0;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>0/${pending.length}`;
+    for (const c of pending) {
+      try {
+        await runEdgeScanCore(c);
+        done++;
+      } catch (e) { failed++; }
+      btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${done + failed}/${pending.length}`;
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-rulers me-1"></i>Batch Edge Scan';
+    showToast(`Batch edge scan: ${done} succeeded, ${failed} failed out of ${pending.length}`, done > 0 ? 'success' : 'danger');
+    await loadCards();
+  }
+
+  // ── Batch LLM (Claude Batch API) ────────────────────────────────────
+
+  let batchPollInterval = null;
+
+  async function batchLLMScan() {
+    const btn = document.getElementById('btn-batch-llm');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Submitting...';
+    try {
+      const result = await api('POST', '/card-analysis/batch-submit');
+      showToast(`Batch submitted: ${result.batch_id} (${result.request_count} certs). Processing may take up to 24 hours.`, 'success');
+      await loadBatches();
+    } catch (e) {
+      showToast('Batch submit failed: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-robot me-1"></i>Batch LLM Scan';
+    }
+  }
+
+  async function loadBatches() {
+    try {
+      const batches = await api('GET', '/card-analysis/batches') || [];
+      const panel = document.getElementById('batch-panel');
+      if (batches.length === 0) { panel.classList.add('d-none'); stopBatchPolling(); return; }
+      panel.classList.remove('d-none');
+      document.getElementById('batches-tbody').innerHTML = batches.map(b => {
+        const status = b.processing_status || 'unknown';
+        const rc = b.request_counts || {};
+        const total = (rc.processing||0) + (rc.succeeded||0) + (rc.errored||0) + (rc.canceled||0) + (rc.expired||0);
+        const created = b.created_at ? new Date(b.created_at).toLocaleString() : '—';
+        const shortId = (b.id || '').replace('msgbatch_', '').substring(0, 12) + '...';
+        let badge, progress, actions;
+        if (status === 'ended') {
+          badge = `<span class="badge bg-success">Ended</span>`;
+          progress = `<span class="text-success">${rc.succeeded||0}</span>/${total}`;
+          if (rc.errored) progress += ` <span class="text-danger">(${rc.errored} errors)</span>`;
+          actions = `<button class="btn btn-sm btn-outline-success" onclick="collectBatch('${esc(b.id)}')"><i class="bi bi-download me-1"></i>Collect</button>`;
+        } else if (status === 'in_progress' || status === 'processing') {
+          badge = `<span class="badge bg-warning text-dark"><span class="spinner-border spinner-border-sm me-1" style="width:0.7em;height:0.7em"></span>Processing</span>`;
+          progress = `${rc.succeeded||0}/${total} done`;
+          actions = '<span class="text-muted small">Waiting...</span>';
+        } else if (status === 'canceling' || status === 'canceled') {
+          badge = `<span class="badge bg-secondary">Canceled</span>`;
+          progress = '—';
+          actions = '';
+        } else {
+          badge = `<span class="badge bg-secondary">${esc(status)}</span>`;
+          progress = '—';
+          actions = '';
+        }
+        return `<tr>
+          <td class="ps-3 font-monospace small">${shortId}</td>
+          <td>${badge}</td>
+          <td class="small">${created}</td>
+          <td class="small">${progress}</td>
+          <td class="text-end pe-3">${actions}</td>
+        </tr>`;
+      }).join('');
+      // Auto-poll if any batch is still processing
+      const hasActive = batches.some(b => b.processing_status === 'in_progress' || b.processing_status === 'processing');
+      if (hasActive) startBatchPolling(); else stopBatchPolling();
+    } catch (e) {
+      // Silently ignore batch load errors (endpoint may not exist yet)
+    }
+  }
+
+  async function collectBatch(batchId) {
+    const btn = event.target.closest('button');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Collecting...'; }
+    try {
+      const result = await api('POST', `/card-analysis/batch-collect/${batchId}`);
+      if (result.status === 'ended') {
+        showToast(`Batch collected: ${result.succeeded||0} succeeded, ${result.errored||0} errored`, 'success');
+        await loadCards();
+      } else {
+        showToast(`Batch still ${result.status}. Check back later.`, 'warning');
+      }
+      await loadBatches();
+    } catch (e) {
+      showToast('Collect failed: ' + e.message, 'danger');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download me-1"></i>Collect'; }
+    }
+  }
+
+  function startBatchPolling() {
+    if (batchPollInterval) return;
+    batchPollInterval = setInterval(loadBatches, 30000);
+  }
+
+  function stopBatchPolling() {
+    if (batchPollInterval) { clearInterval(batchPollInterval); batchPollInterval = null; }
+  }
+</script>
+{{ end }}

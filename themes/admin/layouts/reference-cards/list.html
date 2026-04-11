@@ -148,6 +148,10 @@
             <input type="text" class="form-control font-monospace" id="ref-cert" placeholder="e.g. 12345678">
           </div>
           <div class="col-12">
+            <label class="form-label small fw-medium" for="ref-ebay">eBay URL <span class="text-muted">(optional)</span></label>
+            <input type="url" class="form-control form-control-sm" id="ref-ebay" placeholder="https://www.ebay.com/itm/...">
+          </div>
+          <div class="col-12">
             <label class="form-label small fw-medium" for="ref-game">Game / Category</label>
             <select class="form-select" id="ref-game">
               <option value="pokemon">Pokemon</option>
@@ -231,24 +235,36 @@
             <span class="small"><span style="display:inline-block;width:12px;height:12px;background:#3264ff;border-radius:2px;vertical-align:middle;"></span> Art edge</span>
             <span class="small text-muted"><i class="bi bi-grip-vertical"></i> Drag handles to angle &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Drag empty area to pan</span>
           </div>
-          <!-- Scores -->
+          <!-- Scores: 4 centering measurements + rotation -->
           <div class="row g-2 text-center mb-3">
-            <div class="col-4">
+            <div class="col">
               <div class="card border p-2">
-                <div class="text-muted small">L/R Centering</div>
-                <div class="fw-bold fs-5" id="score-lr">—</div>
+                <div class="text-muted small">L/R @ Top</div>
+                <div class="fw-bold fs-6" id="score-lr-top">—</div>
               </div>
             </div>
-            <div class="col-4">
+            <div class="col">
               <div class="card border p-2">
-                <div class="text-muted small">T/B Centering</div>
-                <div class="fw-bold fs-5" id="score-tb">—</div>
+                <div class="text-muted small">L/R @ Bottom</div>
+                <div class="fw-bold fs-6" id="score-lr-bot">—</div>
               </div>
             </div>
-            <div class="col-4">
+            <div class="col">
+              <div class="card border p-2">
+                <div class="text-muted small">T/B @ Left</div>
+                <div class="fw-bold fs-6" id="score-tb-left">—</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card border p-2">
+                <div class="text-muted small">T/B @ Right</div>
+                <div class="fw-bold fs-6" id="score-tb-right">—</div>
+              </div>
+            </div>
+            <div class="col">
               <div class="card border p-2">
                 <div class="text-muted small">Rotation</div>
-                <div class="fw-bold fs-5" id="score-rotation">—</div>
+                <div class="fw-bold fs-6" id="score-rotation">—</div>
               </div>
             </div>
           </div>
@@ -690,6 +706,13 @@
     return `<span class="badge ${cls}" title="${label}">${escHtml(ratio)}</span>`;
   }
 
+  function parseCenteringLineData(s) {
+    if (!s || !s.line_data) return null;
+    let ld = typeof s.line_data === 'string' ? JSON.parse(s.line_data) : s.line_data;
+    if (typeof ld === 'string') ld = JSON.parse(ld);
+    return ld;
+  }
+
   function centeringBadge(certNumber) {
     const c = centeringMap[certNumber];
     if (!c) return '<span class="text-muted small">—</span>';
@@ -699,8 +722,19 @@
       if (!s) continue;
       const label = side === 'front' ? 'F' : 'B';
       html += `<span class="text-muted small me-1">${label}:</span>`;
-      html += ratioBadge(s.lr_ratio, `${side} L/R`, side) + ' ';
-      if (s.tb_ratio) html += ratioBadge(s.tb_ratio, `${side} T/B`, side) + ' ';
+
+      // Try to get 4 measurements from line_data
+      const ld = parseCenteringLineData(s);
+      if (ld && ld.lrTop) {
+        html += ratioBadge(ld.lrTop, `${side} L/R@Top`, side) + ' ';
+        html += ratioBadge(ld.lrBot, `${side} L/R@Bot`, side) + ' ';
+        html += ratioBadge(ld.tbLeft, `${side} T/B@Left`, side) + ' ';
+        html += ratioBadge(ld.tbRight, `${side} T/B@Right`, side) + ' ';
+      } else {
+        // Fallback to old lr/tb ratios
+        html += ratioBadge(s.lr_ratio, `${side} L/R`, side) + ' ';
+        if (s.tb_ratio) html += ratioBadge(s.tb_ratio, `${side} T/B`, side) + ' ';
+      }
     }
     return html || '<span class="text-muted small">—</span>';
   }
@@ -732,14 +766,15 @@
       const corners = c[side];
       if (!corners || !corners.length) continue;
       const label = side === 'front' ? 'F' : 'B';
+      html += `<span class="text-muted small me-1">${label}:</span>`;
 
-      // Cut score (front only) — show avg %, keep as-is
+      // Cut score (front only) — show avg %
       if (side === 'front') {
         const scores = corners.map(c => c.cut_score).filter(s => s > 0);
         if (scores.length) {
           const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
           const cls = avg >= 80 ? 'bg-success' : avg >= 60 ? 'bg-warning text-dark' : 'bg-danger';
-          html += `<span class="text-muted small me-1">${label}:</span><span class="badge ${cls}" title="${side} avg cut score">${avg}%</span> `;
+          html += `<span class="badge ${cls}" title="${side} avg cut score">${avg}%</span> `;
         }
       }
 
@@ -749,11 +784,9 @@
         const d = parseCornerData(cr);
         totalMicro += d.micro; totalMinor += d.minor; totalMajor += d.major;
       }
-      if (corners.length) {
-        const cls = defectBadgeCls(totalMicro, totalMinor, totalMajor);
-        const text = `${totalMicro}µ ${totalMinor}m ${totalMajor}M`;
-        html += `${side !== 'front' ? '<span class="text-muted small me-1">' + label + ':</span>' : ''}<span class="badge ${cls}" title="${side} corner whitening">${text}</span> `;
-      }
+      const cls = defectBadgeCls(totalMicro, totalMinor, totalMajor);
+      const text = `${totalMicro}µ ${totalMinor}m ${totalMajor}M`;
+      html += `<span class="badge ${cls}" title="${side} corner whitening">${text}</span> `;
     }
     return html || '<span class="text-muted small">—</span>';
   }
@@ -790,7 +823,7 @@
         <td>${escHtml(r.set_code || '—')}</td>
         <td class="font-monospace">${escHtml(r.card_number || '—')}</td>
         <td><span class="badge ${gradeBadgeClass(r.grade)}">${escHtml(r.grading_company || 'PSA')} ${escHtml(r.grade)}</span></td>
-        <td class="font-monospace">${escHtml(r.cert_number)}</td>
+        <td class="font-monospace">${escHtml(r.cert_number)}${r.ebay_url ? ` <a href="${escHtml(r.ebay_url)}" target="_blank" class="text-primary" title="eBay listing"><i class="bi bi-cart3"></i></a>` : ''}</td>
         <td>${centeringBadge(r.cert_number)}</td>
         <td>${cornerBadge(r.cert_number)}</td>
         <td>${edgeBadge(r.cert_number)}</td>
@@ -871,6 +904,7 @@
     document.getElementById('ref-grading-company').value = 'PSA';
     document.getElementById('ref-grade').value = '10';
     document.getElementById('ref-cert').value = '';
+    document.getElementById('ref-ebay').value = '';
     document.getElementById('ref-game').value = 'pokemon';
     document.getElementById('modal-error').classList.add('d-none');
   }
@@ -884,6 +918,7 @@
     document.getElementById('ref-grading-company').value = r.grading_company || 'PSA';
     document.getElementById('ref-grade').value = r.grade || '10';
     document.getElementById('ref-cert').value = r.cert_number || '';
+    document.getElementById('ref-ebay').value = r.ebay_url || '';
     document.getElementById('ref-game').value = r.game || 'pokemon';
     document.getElementById('modal-error').classList.add('d-none');
     refModal.show();
@@ -898,6 +933,7 @@
       grading_company: document.getElementById('ref-grading-company').value,
       grade: document.getElementById('ref-grade').value,
       cert_number: document.getElementById('ref-cert').value.trim(),
+      ebay_url: document.getElementById('ref-ebay').value.trim(),
       game: document.getElementById('ref-game').value,
     };
     const errEl = document.getElementById('modal-error');
@@ -1166,48 +1202,63 @@
 
   // ── Scoring ─────────────────────────────────────────────────────────────
 
+  function computeLR(st, y) {
+    const cl = vLineX(st.vLines.card_left, y), al = vLineX(st.vLines.art_left, y);
+    const ar = vLineX(st.vLines.art_right, y), cr = vLineX(st.vLines.card_right, y);
+    const lb = al - cl, rb = cr - ar, total = lb + rb;
+    if (total <= 0) return 'N/A';
+    const lp = Math.round(lb / total * 100);
+    return `${lp}/${100 - lp}`;
+  }
+
+  function computeTB(st, x) {
+    const ct = hLineY(st.hLines.card_top, x), at = hLineY(st.hLines.art_top, x);
+    const ab = hLineY(st.hLines.art_bottom, x), cb = hLineY(st.hLines.card_bottom, x);
+    const tb = at - ct, bb = cb - ab, total = tb + bb;
+    if (total <= 0) return 'N/A';
+    const tp = Math.round(tb / total * 100);
+    return `${tp}/${100 - tp}`;
+  }
+
   function computeScores() {
     const st = S();
-    // L/R centering at vertical center of card
-    const midY = st.imgH * 0.5;
-    const clx = vLineX(st.vLines.card_left, midY), alx = vLineX(st.vLines.art_left, midY);
-    const arx = vLineX(st.vLines.art_right, midY), crx = vLineX(st.vLines.card_right, midY);
-    const leftB = alx - clx, rightB = crx - arx, totalLR = leftB + rightB;
-    let lrRatio = 'N/A';
-    if (totalLR > 0) {
-      const lp = Math.round(leftB / totalLR * 100), rp = 100 - lp;
-      lrRatio = `${lp}/${rp}`;
-    }
 
-    // T/B centering at horizontal center of card
-    const midX = st.imgW * 0.5;
-    const cty = hLineY(st.hLines.card_top, midX), aty = hLineY(st.hLines.art_top, midX);
-    const aby = hLineY(st.hLines.art_bottom, midX), cby = hLineY(st.hLines.card_bottom, midX);
-    const topB = aty - cty, botB = cby - aby, totalTB = topB + botB;
-    let tbRatio = 'N/A';
-    if (totalTB > 0) {
-      const tp = Math.round(topB / totalTB * 100), bp = 100 - tp;
-      tbRatio = `${tp}/${bp}`;
-    }
+    // L/R centering measured at the top and bottom of the card
+    const topY = hLineY(st.hLines.art_top, st.imgW * 0.5);
+    const botY = hLineY(st.hLines.art_bottom, st.imgW * 0.5);
+    const lrTop = computeLR(st, topY);
+    const lrBot = computeLR(st, botY);
+
+    // T/B centering measured at the left and right of the card
+    const leftX = vLineX(st.vLines.art_left, st.imgH * 0.5);
+    const rightX = vLineX(st.vLines.art_right, st.imgH * 0.5);
+    const tbLeft = computeTB(st, leftX);
+    const tbRight = computeTB(st, rightX);
 
     // Rotation: average angle of vertical card edge lines
     const angleL = Math.atan2(st.vLines.card_left.b - st.vLines.card_left.a, st.imgH) * (180 / Math.PI);
     const angleR = Math.atan2(st.vLines.card_right.b - st.vLines.card_right.a, st.imgH) * (180 / Math.PI);
     const rotationDeg = Math.round(((angleL + angleR) / 2) * 100) / 100;
 
+    // Overall L/R and T/B (midpoint, for saving)
+    const lrRatio = computeLR(st, st.imgH * 0.5);
+    const tbRatio = computeTB(st, st.imgW * 0.5);
+
     // Update UI
-    document.getElementById('score-lr').textContent = lrRatio;
-    document.getElementById('score-tb').textContent = tbRatio;
+    document.getElementById('score-lr-top').textContent = lrTop;
+    document.getElementById('score-lr-bot').textContent = lrBot;
+    document.getElementById('score-tb-left').textContent = tbLeft;
+    document.getElementById('score-tb-right').textContent = tbRight;
     document.getElementById('score-rotation').textContent = Math.abs(rotationDeg) < 0.01 ? '0°' : `${rotationDeg > 0 ? '+' : ''}${rotationDeg}°`;
 
     // Update side tab badge
     const badge = document.getElementById(`${activeSide}-badge`);
     if (badge && lrRatio !== 'N/A') {
-      badge.textContent = `${lrRatio} | ${tbRatio}`;
+      badge.textContent = `${lrTop} | ${lrBot} | ${tbLeft} | ${tbRight}`;
       badge.classList.remove('d-none');
     }
 
-    return { lrRatio, tbRatio, rotationDeg };
+    return { lrRatio, tbRatio, rotationDeg, lrTop, lrBot, tbLeft, tbRight };
   }
 
   // ── Hit testing (vertical + horizontal lines) ──────────────────────────
@@ -1333,7 +1384,7 @@
     document.querySelectorAll('#side-tabs .nav-link').forEach(el => el.classList.toggle('active', el.dataset.side === side));
     const st = S();
     if (st.img) { sizeCanvas(); drawCanvas(); computeScores(); }
-    else { ctx2d.clearRect(0, 0, cvs.width, cvs.height); document.getElementById('score-lr').textContent = '—'; document.getElementById('score-tb').textContent = '—'; document.getElementById('score-rotation').textContent = '—'; }
+    else { ctx2d.clearRect(0, 0, cvs.width, cvs.height); ['score-lr-top','score-lr-bot','score-tb-left','score-tb-right','score-rotation'].forEach(id => document.getElementById(id).textContent = '—'); }
   }
 
   // ── Load and analyze ────────────────────────────────────────────────────
@@ -1431,7 +1482,7 @@
         // Compute scores for this side
         const prevSide = activeSide;
         activeSide = side;
-        const { lrRatio, tbRatio, rotationDeg } = computeScores();
+        const { lrRatio, tbRatio, rotationDeg, lrTop, lrBot, tbLeft, tbRight } = computeScores();
         activeSide = prevSide;
 
         await api('POST', `/certs/${pendingCenteringCert}/centering-analysis`, {
@@ -1439,7 +1490,7 @@
           lr_ratio: lrRatio,
           tb_ratio: tbRatio,
           rotation_deg: rotationDeg,
-          line_data: JSON.stringify({ vLines: st.vLines, hLines: st.hLines }),
+          line_data: JSON.stringify({ vLines: st.vLines, hLines: st.hLines, lrTop, lrBot, tbLeft, tbRight }),
           image_width: st.imgW,
           image_height: st.imgH,
         });
