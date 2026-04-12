@@ -23,6 +23,12 @@
             <i class="bi bi-cart me-1"></i>eBay Pipeline
           </a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link nav-admin-only{{ if eq .RelPermalink "/regrades/" }} active{{ end }}"
+             href="{{ "regrades/" | relURL }}" title="Track cards through regrading">
+            <i class="bi bi-arrow-repeat me-1"></i>Regrades
+          </a>
+        </li>
       </ul>
 
       <div class="d-flex align-items-center gap-2 ms-auto" id="nav-auth">

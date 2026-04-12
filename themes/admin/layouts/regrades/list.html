@@ -1,0 +1,415 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-arrow-repeat me-2"></i>{{ .Title }}</h2>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-primary" onclick="showNewBatchModal()">
+      <i class="bi bi-plus-circle me-1"></i>New Batch
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadAll()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+</div>
+
+<p class="text-muted small">
+  Track PSA 9s through purchase → batch submission → regrade result. Data feeds back into analysis accuracy metrics.
+</p>
+
+<!-- Auth guard -->
+<div id="auth-guard" class="alert alert-warning d-none">
+  <i class="bi bi-lock me-1"></i>You must be <a href="{{ "" | relURL }}">signed in</a>.
+</div>
+
+<div id="main-content" class="d-none">
+
+<!-- Stats dashboard -->
+<div class="row g-2 mb-3" id="stats-cards">
+  <div class="col-md-2"><div class="card border-0 shadow-sm"><div class="card-body py-2">
+    <div class="small text-muted">Total Tracked</div>
+    <div class="h5 mb-0" id="stat-total">—</div>
+  </div></div></div>
+  <div class="col-md-2"><div class="card border-0 shadow-sm"><div class="card-body py-2">
+    <div class="small text-muted">Submitted</div>
+    <div class="h5 mb-0" id="stat-submitted">—</div>
+  </div></div></div>
+  <div class="col-md-2"><div class="card border-0 shadow-sm"><div class="card-body py-2">
+    <div class="small text-muted">Results</div>
+    <div class="h5 mb-0" id="stat-results">—</div>
+  </div></div></div>
+  <div class="col-md-2"><div class="card border-0 shadow-sm"><div class="card-body py-2">
+    <div class="small text-muted">PSA 10 Gems</div>
+    <div class="h5 mb-0 text-success" id="stat-gems">—</div>
+  </div></div></div>
+  <div class="col-md-2"><div class="card border-0 shadow-sm"><div class="card-body py-2">
+    <div class="small text-muted">Gem Rate</div>
+    <div class="h5 mb-0" id="stat-gem-rate">—</div>
+  </div></div></div>
+  <div class="col-md-2"><div class="card border-0 shadow-sm"><div class="card-body py-2">
+    <div class="small text-muted">Total Spent</div>
+    <div class="h5 mb-0" id="stat-spent">—</div>
+  </div></div></div>
+</div>
+
+<!-- Submission batches -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-header bg-white border-0 py-2"><strong class="small"><i class="bi bi-box-seam me-1"></i>Submission Batches</strong></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Batch</th>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Submitted</th>
+            <th>Received</th>
+            <th>Cards</th>
+            <th>Results</th>
+            <th class="text-end pe-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="batches-tbody"><tr><td colspan="8" class="text-center text-muted small">No batches yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Regrade cards -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-header bg-white border-0 py-2 d-flex align-items-center justify-content-between">
+    <strong class="small"><i class="bi bi-card-list me-1"></i>Tracked Cards</strong>
+    <div class="d-flex gap-2">
+      <select class="form-select form-select-sm" id="filter-status" onchange="applyFilters()" style="width:auto">
+        <option value="">All Statuses</option>
+        <option value="purchased">Purchased</option>
+        <option value="submitted">Submitted</option>
+        <option value="result_received">Results Received</option>
+      </select>
+      <select class="form-select form-select-sm" id="filter-batch" onchange="applyFilters()" style="width:auto">
+        <option value="">All Batches</option>
+      </select>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Cert #</th>
+            <th>Card</th>
+            <th>Scans</th>
+            <th>Predicted</th>
+            <th>Purchase</th>
+            <th>Batch</th>
+            <th>Status</th>
+            <th>Result</th>
+            <th class="text-end pe-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="regrades-tbody"><tr><td colspan="9" class="text-center text-muted small">No tracked cards yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Corner defect analysis -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-header bg-white border-0 py-2"><strong class="small"><i class="bi bi-bar-chart me-1"></i>Gem Rate by Corner Defects</strong></div>
+  <div class="card-body">
+    <div id="corner-analysis" class="text-muted small">No regrade data yet. Record results to see analytics.</div>
+  </div>
+</div>
+
+</div> <!-- /main-content -->
+
+<!-- New batch modal -->
+<div class="modal fade" id="batchModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">New Submission Batch</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label small">Batch Name</label>
+          <input type="text" class="form-control" id="batch-name" placeholder="e.g. batch-2026-04">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">PSA Service Level</label>
+          <select class="form-select" id="batch-service">
+            <option value="economy">Economy ($19)</option>
+            <option value="regular">Regular ($40)</option>
+            <option value="express">Express ($75)</option>
+            <option value="super_express">Super Express ($150)</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Per-Card Cost ($)</label>
+          <input type="number" class="form-control" id="batch-cost" step="0.01" placeholder="19.00">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Notes</label>
+          <textarea class="form-control" id="batch-notes" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="createBatch()">Create Batch</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Record result modal -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Record Regrade Result</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="result-regrade-id">
+        <div class="mb-2">
+          <label class="form-label small">Card</label>
+          <div id="result-card-info" class="text-muted small"></div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">New Grade</label>
+          <select class="form-select" id="result-grade">
+            <option value="10">PSA 10 (Gem Mint)</option>
+            <option value="9.5">PSA 9.5</option>
+            <option value="9">PSA 9 (same)</option>
+            <option value="8.5">PSA 8.5</option>
+            <option value="8">PSA 8</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">New Cert Number</label>
+          <input type="text" class="form-control font-monospace" id="result-cert" placeholder="e.g. 12345678">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success" onclick="saveResult()">Save Result</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  let allRegrades = [];
+  let allBatches = [];
+  const batchModal = new bootstrap.Modal(document.getElementById('batchModal'));
+  const resultModal = new bootstrap.Modal(document.getElementById('resultModal'));
+
+  if (!window._firebaseReady) {
+    document.getElementById('auth-guard').classList.remove('d-none');
+  } else {
+    firebase.auth().onAuthStateChanged(async user => {
+      if (!user) { document.getElementById('auth-guard').classList.remove('d-none'); return; }
+      document.getElementById('main-content').classList.remove('d-none');
+      await loadAll();
+    });
+  }
+
+  async function loadAll() {
+    await Promise.all([loadBatches(), loadRegrades(), loadStats()]);
+  }
+
+  async function loadBatches() {
+    try {
+      allBatches = await api('GET', '/regrade-submissions') || [];
+      renderBatches();
+      populateBatchFilter();
+    } catch (e) { showToast('Failed to load batches: '+e.message, 'danger'); }
+  }
+
+  async function loadRegrades() {
+    try {
+      allRegrades = await api('GET', '/regrades') || [];
+      applyFilters();
+    } catch (e) { showToast('Failed to load regrades: '+e.message, 'danger'); }
+  }
+
+  async function loadStats() {
+    try {
+      const s = await api('GET', '/regrades/stats');
+      const o = s.overall;
+      document.getElementById('stat-total').textContent = o.total;
+      document.getElementById('stat-submitted').textContent = o.submitted;
+      document.getElementById('stat-results').textContent = o.results_received;
+      document.getElementById('stat-gems').textContent = o.gems;
+      document.getElementById('stat-gem-rate').textContent = o.results_received > 0 ? (o.gem_rate*100).toFixed(0)+'%' : '—';
+      document.getElementById('stat-spent').textContent = o.total_purchase_cost != null ? '$'+o.total_purchase_cost.toFixed(2) : '—';
+
+      const buckets = s.gem_rate_by_corner_defects || [];
+      if (buckets.length > 0) {
+        let html = '<table class="table table-sm"><thead><tr><th>Minor Corner Defects</th><th>Total</th><th>Gems</th><th>Gem Rate</th></tr></thead><tbody>';
+        buckets.forEach(b => {
+          const pct = (b.gem_rate*100).toFixed(0);
+          const color = b.gem_rate >= 0.7 ? 'success' : b.gem_rate >= 0.4 ? 'warning' : 'danger';
+          html += `<tr><td>${b.minor_corners}</td><td>${b.total}</td><td>${b.gems}</td><td><span class="badge bg-${color}">${pct}%</span></td></tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('corner-analysis').innerHTML = html;
+      }
+    } catch (e) { showToast('Failed to load stats: '+e.message, 'danger'); }
+  }
+
+  function renderBatches() {
+    const tbody = document.getElementById('batches-tbody');
+    if (allBatches.length === 0) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted small">No batches yet</td></tr>'; return; }
+    tbody.innerHTML = allBatches.map(b => `<tr>
+      <td class="ps-3 font-monospace fw-medium">${esc(b.submission_id)}</td>
+      <td><span class="badge bg-light text-dark">${esc(b.psa_service_level||'—')}</span></td>
+      <td>${statusBadge(b.status)}</td>
+      <td>${b.submitted_date || '—'}</td>
+      <td>${b.received_date || '—'}</td>
+      <td>${b.card_count}</td>
+      <td>${b.results_received}/${b.card_count}</td>
+      <td class="text-end pe-3">
+        <button class="btn btn-sm btn-outline-primary" onclick='updateBatchStatus("${esc(b.submission_id)}")'><i class="bi bi-pencil"></i></button>
+      </td>
+    </tr>`).join('');
+  }
+
+  function populateBatchFilter() {
+    const sel = document.getElementById('filter-batch');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All Batches</option>' +
+      allBatches.map(b => `<option value="${esc(b.submission_id)}">${esc(b.submission_id)}</option>`).join('');
+    sel.value = current;
+  }
+
+  function applyFilters() {
+    const statusF = document.getElementById('filter-status').value;
+    const batchF = document.getElementById('filter-batch').value;
+    const filtered = allRegrades.filter(r => {
+      if (statusF && r.status !== statusF) return false;
+      if (batchF && r.submission_id !== batchF) return false;
+      return true;
+    });
+    renderRegrades(filtered);
+  }
+
+  function renderRegrades(rows) {
+    const tbody = document.getElementById('regrades-tbody');
+    if (rows.length === 0) { tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted small">No tracked cards</td></tr>'; return; }
+    const backendUrl = document.body.dataset.backendUrl.replace(/\/$/,'');
+    tbody.innerHTML = rows.map(r => `<tr>
+      <td class="ps-3 font-monospace fw-medium">${esc(r.original_cert_number)}</td>
+      <td>${esc(r.card_name||'—')}<br><span class="text-muted small">${esc(r.set_code||'')} ${esc(r.card_number||'')}</span></td>
+      <td>${scanThumbs(r, backendUrl)}</td>
+      <td>${r.predicted_grade ? gradeBadge(r.predicted_grade) : '—'}</td>
+      <td>${r.purchase_price ? '$'+r.purchase_price.toFixed(2) : '—'}<br><span class="text-muted small">${r.purchase_date||''}</span></td>
+      <td><select class="form-select form-select-sm" onchange='assignBatch("${r.id}",this.value)'>
+        <option value="">— unassigned —</option>
+        ${allBatches.map(b => `<option value="${esc(b.submission_id)}" ${b.submission_id===r.submission_id?'selected':''}>${esc(b.submission_id)}</option>`).join('')}
+      </select></td>
+      <td>${statusBadge(r.status)}</td>
+      <td>${r.result_grade ? gradeBadge(r.result_grade) : '—'}${r.result_cert_number ? `<br><span class="text-muted small font-monospace">${esc(r.result_cert_number)}</span>` : ''}</td>
+      <td class="text-end pe-3 text-nowrap">
+        ${!r.result_grade ? `<button class="btn btn-sm btn-outline-success me-1" onclick='showResultModal("${r.id}","${esc(r.card_name||'Card')}","${esc(r.original_cert_number)}")' title="Record result"><i class="bi bi-check2-circle"></i></button>` : ''}
+        ${r.ebay_url ? `<a href="${esc(r.ebay_url)}" target="_blank" class="btn btn-sm btn-outline-secondary me-1" title="eBay listing"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
+        <button class="btn btn-sm btn-outline-danger" onclick='deleteRegrade("${r.id}")' title="Delete"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`).join('');
+  }
+
+  function scanThumbs(r, backendUrl) {
+    if (!r.gcs_front_path && !r.gcs_back_path) return '<span class="text-muted small">—</span>';
+    let html = '<div class="d-flex gap-1">';
+    if (r.gcs_front_path) html += `<img src="${backendUrl}/scans/${r.gcs_front_path}" style="height:32px;border-radius:3px" title="Front">`;
+    if (r.gcs_back_path) html += `<img src="${backendUrl}/scans/${r.gcs_back_path}" style="height:32px;border-radius:3px" title="Back">`;
+    html += '</div>';
+    return html;
+  }
+
+  function statusBadge(s) {
+    const map = {preparing:'secondary',purchased:'secondary',submitted:'info',in_transit:'info',at_psa:'warning',results_received:'success',result_received:'success',failed:'danger'};
+    return `<span class="badge bg-${map[s]||'secondary'}">${esc(s)}</span>`;
+  }
+  function gradeBadge(g) {
+    const colors = {'10':'success','9.5':'info','9':'primary','8.5':'warning','8':'warning','7':'danger'};
+    return `<span class="badge bg-${colors[g]||'secondary'}">${esc(g)}</span>`;
+  }
+  function esc(s) { if (!s) return ''; const d=document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
+
+  function showNewBatchModal() { batchModal.show(); }
+
+  async function createBatch() {
+    const body = {
+      submission_id: document.getElementById('batch-name').value.trim(),
+      psa_service_level: document.getElementById('batch-service').value,
+      submission_cost: parseFloat(document.getElementById('batch-cost').value) || 0,
+      notes: document.getElementById('batch-notes').value.trim(),
+    };
+    if (!body.submission_id) { showToast('Batch name required', 'warning'); return; }
+    try {
+      await api('POST', '/regrade-submissions', body);
+      batchModal.hide();
+      document.getElementById('batch-name').value = '';
+      document.getElementById('batch-cost').value = '';
+      document.getElementById('batch-notes').value = '';
+      showToast('Batch created', 'success');
+      await loadAll();
+    } catch (e) { showToast('Create failed: '+e.message, 'danger'); }
+  }
+
+  async function updateBatchStatus(submissionId) {
+    const newStatus = prompt('New status? (preparing, submitted, in_transit, at_psa, results_received)');
+    if (!newStatus) return;
+    try {
+      const body = {status: newStatus};
+      if (newStatus === 'submitted') body.submitted_date = new Date().toISOString().split('T')[0];
+      if (newStatus === 'results_received') body.received_date = new Date().toISOString().split('T')[0];
+      await api('PUT', `/regrade-submissions/${submissionId}`, body);
+      showToast('Batch updated', 'success');
+      await loadAll();
+    } catch (e) { showToast('Update failed: '+e.message, 'danger'); }
+  }
+
+  async function assignBatch(regradeId, submissionId) {
+    try {
+      const body = {submission_id: submissionId || null};
+      if (submissionId) body.status = 'submitted';
+      await api('PUT', `/regrades/${regradeId}`, body);
+      showToast('Updated', 'success');
+      await loadAll();
+    } catch (e) { showToast('Update failed: '+e.message, 'danger'); }
+  }
+
+  function showResultModal(regradeId, cardName, certNumber) {
+    document.getElementById('result-regrade-id').value = regradeId;
+    document.getElementById('result-card-info').textContent = cardName + ' — original cert ' + certNumber;
+    document.getElementById('result-cert').value = '';
+    resultModal.show();
+  }
+
+  async function saveResult() {
+    const regradeId = document.getElementById('result-regrade-id').value;
+    const body = {
+      result_grade: document.getElementById('result-grade').value,
+      result_cert_number: document.getElementById('result-cert').value.trim(),
+      status: 'result_received',
+    };
+    try {
+      await api('PUT', `/regrades/${regradeId}`, body);
+      resultModal.hide();
+      showToast('Result recorded', 'success');
+      await loadAll();
+    } catch (e) { showToast('Save failed: '+e.message, 'danger'); }
+  }
+
+  async function deleteRegrade(id) {
+    if (!confirm('Delete this regrade entry?')) return;
+    try {
+      await api('DELETE', `/regrades/${id}`);
+      showToast('Deleted', 'success');
+      await loadAll();
+    } catch (e) { showToast('Delete failed: '+e.message, 'danger'); }
+  }
+</script>
+{{ end }}

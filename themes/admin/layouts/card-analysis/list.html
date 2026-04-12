@@ -567,6 +567,7 @@
           <button class="btn btn-sm btn-outline-primary" onclick='openReview("${c.cert_number}")'><i class="bi bi-eye"></i></button>
           ${c.ebay_url ? `<a href="${esc(c.ebay_url)}" target="_blank" class="btn btn-sm btn-outline-success ms-1" title="Buy on eBay"><i class="bi bi-cart"></i></a>` : ''}
           ${status==='analyzed'?`<button class="btn btn-sm btn-success ms-1" onclick='approveCard("${c.cert_number}")'><i class="bi bi-check-lg"></i></button>`:''}
+          ${status==='approved'?`<button class="btn btn-sm btn-outline-info ms-1" onclick='trackRegrade("${c.cert_number}","${esc(c.card_name||'')}","${esc(c.grade||'')}","${esc(c.ebay_url||'')}")' title="Track regrade"><i class="bi bi-arrow-repeat"></i></button>`:''}
         </td></tr>`;
     }).join('');
   }
@@ -748,6 +749,24 @@
     if (d.minor > 0) parts.push(`${d.minor} minor`);
     if (d.micro > 0) parts.push(`${d.micro} micro`);
     return `<span class="text-${color} fw-medium small">${parts.join(', ')}</span>`;
+  }
+
+  async function trackRegrade(certNumber, cardName, grade, ebayUrl) {
+    const price = prompt(`Track regrade for ${cardName} (cert ${certNumber})\n\nPurchase price ($):`);
+    if (price === null) return;
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum < 0) { showToast('Invalid price', 'warning'); return; }
+    const purchaseDate = new Date().toISOString().split('T')[0];
+    try {
+      await api('POST', '/regrades', {
+        original_cert_number: certNumber,
+        purchase_price: priceNum,
+        purchase_date: purchaseDate,
+        ebay_url: ebayUrl,
+        original_grade: grade,
+      });
+      showToast(`Added to regrade tracking — see Regrades tab`, 'success');
+    } catch (e) { showToast('Failed to track regrade: '+e.message, 'danger'); }
   }
 
   async function approveCard(certNumber) {
