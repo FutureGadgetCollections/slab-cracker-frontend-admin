@@ -8,24 +8,87 @@ Requires Application Default Credentials:
 """
 
 import json
+import os
+import functools
+import threading
+import traceback
+
+# Eager top-level imports so we pay the ~2s google.cloud import cost at server
+# startup instead of on the first tool call the user makes.
+from google.cloud import bigquery, storage
+
 from mcp.server.fastmcp import FastMCP
 
 PROJECT_ID = "fg-tcglabs"
 REGION = "us-central1"
 SCANS_BUCKET = "slab-cracker-scans"
 
+# Hard upper bounds so a hung upstream call can't lock up the MCP session.
+HTTP_TIMEOUT_SECONDS = 30
+BQ_TIMEOUT_SECONDS = 45
+
 mcp = FastMCP("gcp-slab-cracker")
+
+
+def safe_tool(fn):
+    """Wrap a tool so any exception returns a JSON error instead of hanging
+    the MCP client or surfacing a raw stack trace."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            return json.dumps({
+                "error": f"{type(e).__name__}: {e}",
+                "tool": fn.__name__,
+                "traceback": traceback.format_exc(limit=3),
+            })
+
+    return wrapper
+
 
 # ── Client singletons ─────────────────────────────────────────────────────────
 
 _bq_client = None
 _gcs_client = None
+_anthropic_client = None
+_anthropic_api_key_cached = None
+
+
+def _anthropic_api_key():
+    global _anthropic_api_key_cached
+    if _anthropic_api_key_cached:
+        return _anthropic_api_key_cached
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key:
+        _anthropic_api_key_cached = key
+        return key
+    # Fall back to Secret Manager so the server works even when launched
+    # from an MCP host (e.g., Claude Code) that doesn't inherit the shell env.
+    from google.cloud import secretmanager
+    sm = secretmanager.SecretManagerServiceClient()
+    name = f"projects/{PROJECT_ID}/secrets/anthropic-api-key/versions/latest"
+    resp = sm.access_secret_version(request={"name": name})
+    _anthropic_api_key_cached = resp.payload.data.decode("utf-8")
+    return _anthropic_api_key_cached
+
+
+def _anthropic():
+    global _anthropic_client
+    if _anthropic_client is None:
+        import anthropic
+        _anthropic_client = anthropic.Anthropic(
+            api_key=_anthropic_api_key(),
+            timeout=HTTP_TIMEOUT_SECONDS,
+            max_retries=1,
+        )
+    return _anthropic_client
 
 
 def _bq():
     global _bq_client
     if _bq_client is None:
-        from google.cloud import bigquery
         _bq_client = bigquery.Client(project=PROJECT_ID)
     return _bq_client
 
@@ -33,14 +96,24 @@ def _bq():
 def _gcs():
     global _gcs_client
     if _gcs_client is None:
-        from google.cloud import storage
         _gcs_client = storage.Client(project=PROJECT_ID)
     return _gcs_client
+
+
+def _warm_clients():
+    # Fire-and-forget: pre-instantiates BQ + GCS clients so the first tool
+    # call doesn't pay the ~1-2s ADC token exchange / HTTP pool setup cost.
+    try:
+        _bq()
+        _gcs()
+    except Exception:
+        pass  # clients will retry lazily on first real use
 
 
 # ── BigQuery ──────────────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def bq_list_datasets() -> str:
     """List all BigQuery datasets in the fg-tcglabs project."""
     client = _bq()
@@ -52,6 +125,7 @@ def bq_list_datasets() -> str:
 
 
 @mcp.tool()
+@safe_tool
 def bq_list_tables(dataset_id: str) -> str:
     """List all tables in a BigQuery dataset."""
     client = _bq()
@@ -67,6 +141,7 @@ def bq_list_tables(dataset_id: str) -> str:
 
 
 @mcp.tool()
+@safe_tool
 def bq_describe_table(dataset_id: str, table_id: str) -> str:
     """Get schema, row count, and metadata for a BigQuery table."""
     client = _bq()
@@ -95,6 +170,7 @@ def bq_describe_table(dataset_id: str, table_id: str) -> str:
 
 
 @mcp.tool()
+@safe_tool
 def bq_query(sql: str, max_rows: int = 200) -> str:
     """
     Execute a read-only SQL query against BigQuery (SELECT only).
@@ -111,29 +187,27 @@ def bq_query(sql: str, max_rows: int = 200) -> str:
     from google.cloud import bigquery
     client = _bq()
     job_config = bigquery.QueryJobConfig(maximum_bytes_billed=100 * 1024 * 1024)
-    try:
-        job = client.query(sql, job_config=job_config)
-        results = job.result()
-        rows = []
-        for i, row in enumerate(results):
-            if i >= max_rows:
-                break
-            rows.append(dict(row))
-        total = results.total_rows if results.total_rows is not None else len(rows)
-        return json.dumps(
-            {
-                "rows": rows,
-                "returned": len(rows),
-                "total_rows": total,
-                "truncated": len(rows) < total,
-            },
-            default=str,
-        )
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    job = client.query(sql, job_config=job_config, timeout=HTTP_TIMEOUT_SECONDS)
+    results = job.result(timeout=BQ_TIMEOUT_SECONDS)
+    rows = []
+    for i, row in enumerate(results):
+        if i >= max_rows:
+            break
+        rows.append(dict(row))
+    total = results.total_rows if results.total_rows is not None else len(rows)
+    return json.dumps(
+        {
+            "rows": rows,
+            "returned": len(rows),
+            "total_rows": total,
+            "truncated": len(rows) < total,
+        },
+        default=str,
+    )
 
 
 @mcp.tool()
+@safe_tool
 def bq_sample(dataset_id: str, table_id: str, limit: int = 20) -> str:
     """Return a sample of rows from a BigQuery table."""
     sql = f"SELECT * FROM `{PROJECT_ID}.{dataset_id}.{table_id}` LIMIT {limit}"
@@ -141,6 +215,7 @@ def bq_sample(dataset_id: str, table_id: str, limit: int = 20) -> str:
 
 
 @mcp.tool()
+@safe_tool
 def cert_scans_summary() -> str:
     """
     Get a summary of all cataloged cert scans grouped by game, set_code, and role.
@@ -159,6 +234,7 @@ def cert_scans_summary() -> str:
 
 
 @mcp.tool()
+@safe_tool
 def cert_scans_for_card(game: str, set_code: str, card_number: str) -> str:
     """
     Get all cert scans for a specific card identity.
@@ -176,6 +252,7 @@ def cert_scans_for_card(game: str, set_code: str, card_number: str) -> str:
 
 
 @mcp.tool()
+@safe_tool
 def cross_project_card_price(game: str, set_code: str, card_number: str) -> str:
     """
     Look up a card's market price from the collection-market-tracker project.
@@ -200,6 +277,7 @@ def cross_project_card_price(game: str, set_code: str, card_number: str) -> str:
 # ── GCS ───────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def gcs_list_scans(prefix: str = "", limit: int = 50) -> str:
     """
     List scan files in the slab-cracker-scans bucket.
@@ -220,6 +298,7 @@ def gcs_list_scans(prefix: str = "", limit: int = 50) -> str:
 
 
 @mcp.tool()
+@safe_tool
 def gcs_scan_folders(game: str = "") -> str:
     """
     List the top-level folder structure in slab-cracker-scans.
@@ -240,12 +319,13 @@ def gcs_scan_folders(game: str = "") -> str:
 # ── Cloud Run ─────────────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def cloudrun_list_services() -> str:
     """List all Cloud Run services in the fg-tcglabs project."""
     from google.cloud import run_v2
     client = run_v2.ServicesClient(transport="rest")
     parent = f"projects/{PROJECT_ID}/locations/{REGION}"
-    services = list(client.list_services(parent=parent))
+    services = list(client.list_services(parent=parent, timeout=HTTP_TIMEOUT_SECONDS))
     return json.dumps([
         {
             "name": s.name.split("/")[-1],
@@ -257,6 +337,7 @@ def cloudrun_list_services() -> str:
 
 
 @mcp.tool()
+@safe_tool
 def cloudrun_service_logs(service_name: str, limit: int = 50) -> str:
     """
     Fetch recent logs for a Cloud Run service.
@@ -272,9 +353,13 @@ def cloudrun_service_logs(service_name: str, limit: int = 50) -> str:
         filter_=filter_str,
         max_results=limit,
         order_by=cloud_logging.DESCENDING,
+        page_size=limit,
     )
     result = []
+    # Guard against the iterator streaming indefinitely — stop at `limit`.
     for entry in entries:
+        if len(result) >= limit:
+            break
         result.append({
             "timestamp": str(entry.timestamp),
             "severity": entry.severity,
@@ -283,5 +368,133 @@ def cloudrun_service_logs(service_name: str, limit: int = 50) -> str:
     return json.dumps(result, default=str)
 
 
+# ── Anthropic Batch API ───────────────────────────────────────────────────────
+
+@mcp.tool()
+@safe_tool
+def anthropic_list_batches(limit: int = 20) -> str:
+    """
+    List recent Claude Message Batch API jobs.
+    Shows batch ID, processing status, request counts, and timestamps.
+    Requires ANTHROPIC_API_KEY in environment.
+    """
+    client = _anthropic()
+    batches = list(client.messages.batches.list(limit=limit))
+    return json.dumps([
+        {
+            "id": b.id,
+            "processing_status": b.processing_status,
+            "request_counts": {
+                "processing": b.request_counts.processing,
+                "succeeded": b.request_counts.succeeded,
+                "errored": b.request_counts.errored,
+                "canceled": b.request_counts.canceled,
+                "expired": b.request_counts.expired,
+            },
+            "created_at": str(b.created_at),
+            "ended_at": str(b.ended_at) if b.ended_at else None,
+            "expires_at": str(b.expires_at),
+        }
+        for b in batches
+    ], default=str)
+
+
+@mcp.tool()
+@safe_tool
+def anthropic_batch_status(batch_id: str) -> str:
+    """
+    Get detailed status for a specific Claude batch by ID.
+    Shows processing state, request counts, and result availability.
+    """
+    client = _anthropic()
+    b = client.messages.batches.retrieve(batch_id)
+    return json.dumps({
+        "id": b.id,
+        "processing_status": b.processing_status,
+        "request_counts": {
+            "processing": b.request_counts.processing,
+            "succeeded": b.request_counts.succeeded,
+            "errored": b.request_counts.errored,
+            "canceled": b.request_counts.canceled,
+            "expired": b.request_counts.expired,
+        },
+        "created_at": str(b.created_at),
+        "ended_at": str(b.ended_at) if b.ended_at else None,
+        "expires_at": str(b.expires_at),
+        "results_url": b.results_url,
+    }, default=str)
+
+
+@mcp.tool()
+@safe_tool
+def anthropic_batch_results(batch_id: str, limit: int = 10, custom_id_contains: str = "") -> str:
+    """
+    Fetch results from a completed Claude batch.
+    Only works if batch processing_status is 'ended'.
+    Returns up to `limit` results. Optionally filter by substring of custom_id.
+    Response text is truncated to 2000 chars per entry to keep output manageable.
+    """
+    client = _anthropic()
+    try:
+        results_iter = client.messages.batches.results(batch_id)
+    except Exception as e:
+        return json.dumps({"error": f"Batch may not be ended yet: {e}"})
+
+    results = []
+    for r in results_iter:
+        if custom_id_contains and custom_id_contains not in r.custom_id:
+            continue
+        entry = {"custom_id": r.custom_id, "result_type": r.result.type}
+        if r.result.type == "succeeded":
+            msg = r.result.message
+            text_blocks = [b.text for b in msg.content if hasattr(b, "text")]
+            combined = "\n".join(text_blocks)
+            entry["response_text"] = combined[:2000]
+            entry["truncated"] = len(combined) > 2000
+            entry["stop_reason"] = msg.stop_reason
+            entry["usage"] = {
+                "input_tokens": msg.usage.input_tokens,
+                "output_tokens": msg.usage.output_tokens,
+            }
+        elif r.result.type == "errored":
+            entry["error"] = str(r.result.error)
+        results.append(entry)
+        if len(results) >= limit:
+            break
+    return json.dumps(results, default=str)
+
+
+@mcp.tool()
+@safe_tool
+def anthropic_batch_result_for_cert(batch_id: str, cert_number: str) -> str:
+    """
+    Fetch the single result for a specific cert_number from a batch.
+    Matches against the custom_id field containing the cert. Returns full response text.
+    """
+    client = _anthropic()
+    try:
+        results_iter = client.messages.batches.results(batch_id)
+    except Exception as e:
+        return json.dumps({"error": f"Batch not ready: {e}"})
+
+    for r in results_iter:
+        if cert_number in r.custom_id:
+            entry = {"custom_id": r.custom_id, "result_type": r.result.type}
+            if r.result.type == "succeeded":
+                msg = r.result.message
+                text = "\n".join(b.text for b in msg.content if hasattr(b, "text"))
+                entry["response_text"] = text
+                entry["stop_reason"] = msg.stop_reason
+                entry["usage"] = {
+                    "input_tokens": msg.usage.input_tokens,
+                    "output_tokens": msg.usage.output_tokens,
+                }
+            elif r.result.type == "errored":
+                entry["error"] = str(r.result.error)
+            return json.dumps(entry, default=str)
+    return json.dumps({"error": f"No result found for cert {cert_number}"})
+
+
 if __name__ == "__main__":
+    threading.Thread(target=_warm_clients, daemon=True).start()
     mcp.run()
