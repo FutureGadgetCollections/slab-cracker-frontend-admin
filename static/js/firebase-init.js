@@ -64,7 +64,7 @@ if (!window._firebaseReady) {
   const loginBtn = document.getElementById("btn-login");
   if (loginBtn) loginBtn.classList.remove("d-none");
 }
-if (window._firebaseReady) firebase.auth().onAuthStateChanged(user => {
+if (window._firebaseReady) firebase.auth().onAuthStateChanged(async user => {
   const emailEl   = document.getElementById("nav-user-email");
   const logoutBtn = document.getElementById("btn-logout");
   const loginBtn  = document.getElementById("btn-login");
@@ -83,11 +83,25 @@ if (window._firebaseReady) firebase.auth().onAuthStateChanged(user => {
     document.querySelectorAll('.nav-admin-only').forEach(el => {
       el.classList.toggle('nav-admin-disabled', !isAdmin);
     });
+
+    // Forward the ID token to the browser extension (isolated world) via
+    // postMessage so it can POST to the backend as this user.
+    try {
+      const token = await user.getIdToken();
+      window.postMessage({
+        type: "SLAB_CRACKER_AUTH",
+        token,
+        email: user.email,
+        backend: document.body.dataset.backendUrl || "",
+      }, window.location.origin);
+    } catch (_) { /* extension may not be installed; ignore */ }
   } else {
     window.currentUserIsAdmin = false;
     if (emailEl)   emailEl.textContent = "";
     if (logoutBtn) logoutBtn.classList.add("d-none");
     if (loginBtn)  loginBtn.classList.remove("d-none");
     if (navLinks)  navLinks.style.setProperty("display", "none", "important");
+
+    window.postMessage({ type: "SLAB_CRACKER_AUTH", token: null }, window.location.origin);
   }
 });

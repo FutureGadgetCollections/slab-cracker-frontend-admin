@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 13px system-ui; margin: 0; padding: 12px; width: 280px; }
+  h3 { margin: 0 0 8px; font-size: 14px; }
+  .row { margin: 6px 0; }
+  .muted { color: #666; font-size: 11px; }
+  .ok { color: #146c43; }
+  .err { color: #b02a37; }
+  input { width: 100%; box-sizing: border-box; padding: 4px 6px; font: 12px monospace; }
+  button { margin-top: 6px; width: 100%; padding: 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h3>Slab Cracker</h3>
+  <div class="row" id="auth-status">Checking auth…</div>
+  <div class="row">
+    <input id="cert" type="text" placeholder="Cert number (8-9 digits)">
+    <button id="open-btn">Open on PSA</button>
+  </div>
+  <div class="muted">
+    Sign in at the Slab Cracker admin site first. This extension will pick up
+    your session automatically.
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

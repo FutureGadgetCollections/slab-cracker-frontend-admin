@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Slab Cracker PSA Helper",
+  "version": "0.1.0",
+  "description": "Scrapes PSA cert pages (using your browser's session, bypassing WAF) and submits data to Slab Cracker.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.psacard.com/*",
+    "https://d1htnxwo4o0jhw.cloudfront.net/*",
+    "https://*.run.app/*",
+    "https://phil-win.github.io/*",
+    "http://localhost:*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.psacard.com/cert/*"],
+      "js": ["content-psa.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://phil-win.github.io/slab-cracker-frontend-admin/*",
+        "http://localhost:1313/*"
+      ],
+      "js": ["content-admin.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Slab Cracker"
+  }
+}
