@@ -19,15 +19,28 @@
 <div class="card shadow-sm border-0 mb-3">
   <div class="card-body py-2">
     <div class="row g-2 align-items-end">
-      <div class="col-md-8">
-        <label class="form-label small fw-medium mb-1">Test single eBay listing URL</label>
+      <div class="col-md-6">
+        <label class="form-label small fw-medium mb-1">Single eBay listing URL</label>
         <input type="text" class="form-control form-control-sm" id="manual-url" placeholder="https://www.ebay.com/itm/...">
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <button class="btn btn-primary btn-sm w-100" onclick="processManualURL()">
           <i class="bi bi-search me-1"></i>Process URL
         </button>
       </div>
+      <div class="col-md-3">
+        <button class="btn btn-outline-primary btn-sm w-100" data-bs-toggle="collapse" data-bs-target="#batch-urls-section">
+          <i class="bi bi-list-ol me-1"></i>Batch URLs
+        </button>
+      </div>
+    </div>
+    <div class="collapse mt-2" id="batch-urls-section">
+      <label class="form-label small fw-medium mb-1">Multiple eBay URLs (one per line)</label>
+      <textarea class="form-control form-control-sm font-monospace" id="batch-urls" rows="6" placeholder="https://www.ebay.com/itm/12345&#10;https://www.ebay.com/itm/67890&#10;..."></textarea>
+      <button class="btn btn-primary btn-sm mt-2" onclick="processBatchURLs()">
+        <i class="bi bi-send me-1"></i>Process All
+      </button>
+      <span class="small text-muted ms-2">Processed sequentially on the backend. Each takes ~10-30s.</span>
     </div>
   </div>
 </div>
@@ -163,6 +176,19 @@
         </td>
       </tr>`;
     }).join('');
+  }
+
+  async function processBatchURLs() {
+    const text = document.getElementById('batch-urls').value.trim();
+    const urls = text.split('\n').map(s => s.trim()).filter(s => s.includes('ebay.com'));
+    if (urls.length === 0) { showToast('Enter at least one eBay URL', 'warning'); return; }
+    showToast(`Processing ${urls.length} URLs... this may take a few minutes`, 'info');
+    try {
+      const result = await api('POST', '/pipeline/ebay-urls', { urls });
+      showToast(`Batch complete: ${result.success} succeeded, ${result.failed} failed`, 'success');
+      document.getElementById('batch-urls').value = '';
+      await loadPipeline();
+    } catch (e) { showToast('Batch failed: ' + e.message, 'danger'); }
   }
 
   async function processManualURL() {
