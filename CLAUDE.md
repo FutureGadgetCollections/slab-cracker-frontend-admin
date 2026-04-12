@@ -31,16 +31,16 @@ Run `./setup.sh` after cloning this repo to clone all sibling repos to the corre
 
 | Resource | Details |
 |----------|---------|
-| GCP Project | `slab-cracker` (dedicated project, separate from collection-market-tracker) |
+| GCP Project | `fg-tcglabs` (shared with other TCG tooling; originally planned as a dedicated `slab-cracker` project but consolidated) |
 | Cloud Run service (API) | `slab-cracker-api` -- `us-central1` |
 | Cloud Run job (scan fetcher) | `psa-scan-fetcher` -- `us-central1` -- fetches cert scans from PSA |
 | Cloud Run job (analysis) | `slab-analysis` -- `us-central1` -- runs image comparison ML pipeline |
 | GCS bucket (scans) | `slab-cracker-scans` -- stores fetched card images |
 | GCS bucket (data) | `slab-cracker-data` -- exported JSON snapshots |
-| BigQuery | Project `slab-cracker` -- dataset: `grading` |
+| BigQuery | Project `fg-tcglabs` -- dataset: `grading` |
 | Firebase project | `slab-cracker-auth` (Google sign-in; config goes in `.env`, never committed) |
 
-> **Cross-project access:** Grant the slab-cracker service account `roles/bigquery.dataViewer` on `future-gadget-labs-483502` datasets `catalog` and `market_data` for price lookups.
+> **Cross-project access:** Grant the `fg-tcglabs` service account `roles/bigquery.dataViewer` on `future-gadget-labs-483502` datasets `catalog` and `market_data` for price lookups.
 
 ## Cross-Project Joins (collection-market-tracker)
 
@@ -49,7 +49,7 @@ Card identity `(game, set_code, card_number)` is intentionally aligned with the 
 ```sql
 -- Get market prices for scanned cards
 SELECT cs.cert_number, cs.grade, cs.role, sc.name, sc.rarity, tp.market_price
-FROM `slab-cracker.grading.cert_scans` cs
+FROM `fg-tcglabs.grading.cert_scans` cs
 JOIN `future-gadget-labs-483502.catalog.single_cards` sc
   ON cs.game = sc.game AND cs.set_code = sc.set_code AND cs.card_number = sc.card_number
 LEFT JOIN `future-gadget-labs-483502.market_data.latest_tcgplayer_prices` tp
