@@ -171,12 +171,14 @@ def bq_describe_table(dataset_id: str, table_id: str) -> str:
 
 @mcp.tool()
 @safe_tool
-def bq_query(sql: str, max_rows: int = 200) -> str:
+def bq_query(sql: str, max_rows: int = 200, timeout_seconds: int = BQ_TIMEOUT_SECONDS) -> str:
     """
     Execute a read-only SQL query against BigQuery (SELECT only).
     Project is fg-tcglabs. Use fully-qualified names like `grading.cert_scans`
     or cross-project: `future-gadget-labs-483502.catalog.single_cards`.
-    Capped at 100 MB scanned.
+    Capped at 100 MB scanned. Default timeout 45s; pass larger `timeout_seconds`
+    for heavy queries. On timeout the BQ job is cancelled and `job_id` is
+    returned so you can inspect it in the BQ console.
     """
     blocked = {"INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE", "MERGE"}
     upper = sql.upper()
@@ -186,21 +188,63 @@ def bq_query(sql: str, max_rows: int = 200) -> str:
 
     from google.cloud import bigquery
     client = _bq()
-    job_config = bigquery.QueryJobConfig(maximum_bytes_billed=100 * 1024 * 1024)
-    job = client.query(sql, job_config=job_config, timeout=HTTP_TIMEOUT_SECONDS)
-    results = job.result(timeout=BQ_TIMEOUT_SECONDS)
+    job_config = bigquery.QueryJobConfig(
+        maximum_bytes_billed=100 * 1024 * 1024,
+        use_query_cache=True,  # cheap and fast on repeated exploratory queries
+    )
+
+    # Submit. This is a quick metadata call; the job runs server-side.
+    try:
+        job = client.query(sql, job_config=job_config, timeout=HTTP_TIMEOUT_SECONDS)
+    except Exception as e:
+        return json.dumps({
+            "error": f"Query submission failed: {type(e).__name__}: {e}",
+            "hint": "Check auth (gcloud auth application-default login) or SQL syntax.",
+        })
+
+    job_id = job.job_id
+    job_location = job.location
+
+    # Wait for completion with a hard deadline. On timeout, cancel the job so
+    # it doesn't keep burning bytes after the MCP client has given up.
+    try:
+        results = job.result(timeout=timeout_seconds)
+    except Exception as e:
+        try:
+            client.cancel_job(job_id, location=job_location)
+        except Exception:
+            pass  # best-effort — job may have finished or never started
+        return json.dumps({
+            "error": f"Query timed out after {timeout_seconds}s ({type(e).__name__}: {e})",
+            "job_id": job_id,
+            "location": job_location,
+            "hint": "Narrow the query (tighter WHERE, add LIMIT), or retry with a larger timeout_seconds.",
+        })
+
     rows = []
-    for i, row in enumerate(results):
-        if i >= max_rows:
-            break
-        rows.append(dict(row))
+    try:
+        for i, row in enumerate(results):
+            if i >= max_rows:
+                break
+            rows.append(dict(row))
+    except Exception as e:
+        return json.dumps({
+            "error": f"Result iteration failed: {type(e).__name__}: {e}",
+            "job_id": job_id,
+            "partial_rows": len(rows),
+        })
+
     total = results.total_rows if results.total_rows is not None else len(rows)
+    bytes_processed = getattr(job, "total_bytes_processed", None)
     return json.dumps(
         {
             "rows": rows,
             "returned": len(rows),
             "total_rows": total,
             "truncated": len(rows) < total,
+            "job_id": job_id,
+            "bytes_processed": bytes_processed,
+            "cache_hit": getattr(job, "cache_hit", None),
         },
         default=str,
     )
