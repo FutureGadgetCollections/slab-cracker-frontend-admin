@@ -139,6 +139,11 @@
       Approved <span class="badge bg-success ms-1" id="count-approved">0</span>
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link" href="#" data-status="to_buy" onclick="switchTab(this, event)">
+      To Buy <span class="badge bg-primary ms-1" id="count-to-buy">0</span>
+    </a>
+  </li>
 </ul>
 
 <!-- Loading -->
@@ -363,6 +368,7 @@
       document.getElementById('count-batch').textContent = all.filter(c => !c.analyzed_at && c.batch_id).length;
       document.getElementById('count-analyzed').textContent = all.filter(c => c.analyzed_at && !c.approved_at).length;
       document.getElementById('count-approved').textContent = all.filter(c => c.approved_at).length;
+      document.getElementById('count-to-buy').textContent = all.filter(c => c.marked_to_buy_at).length;
     } catch (_) {}
   }
 
@@ -578,6 +584,9 @@
           ${c.ebay_url ? `<a href="${esc(c.ebay_url)}" target="_blank" class="btn btn-sm btn-outline-success ms-1" title="Buy on eBay"><i class="bi bi-cart"></i></a>` : ''}
           ${status==='analyzed'?`<button class="btn btn-sm btn-success ms-1" onclick='approveCard("${c.cert_number}")'><i class="bi bi-check-lg"></i></button>`:''}
           ${status==='approved'?`<button class="btn btn-sm btn-outline-info ms-1" onclick='trackRegrade("${c.cert_number}","${esc(c.card_name||'')}","${esc(c.grade||'')}","${esc(c.ebay_url||'')}")' title="Track regrade"><i class="bi bi-arrow-repeat"></i></button>`:''}
+          ${c.marked_to_buy_at
+            ? `<button class="btn btn-sm btn-primary ms-1" onclick='toggleMarkToBuy("${c.cert_number}", true)' title="Marked to buy — click to unmark"><i class="bi bi-bookmark-star-fill"></i></button>`
+            : `<button class="btn btn-sm btn-outline-primary ms-1" onclick='toggleMarkToBuy("${c.cert_number}", false)' title="Mark to buy"><i class="bi bi-bookmark-star"></i></button>`}
         </td></tr>`;
     }).join('');
   }
@@ -777,6 +786,15 @@
       });
       showToast(`Added to regrade tracking — see Regrades tab`, 'success');
     } catch (e) { showToast('Failed to track regrade: '+e.message, 'danger'); }
+  }
+
+  async function toggleMarkToBuy(certNumber, currentlyMarked) {
+    const endpoint = currentlyMarked ? 'unmark-to-buy' : 'mark-to-buy';
+    try {
+      await api('POST', `/card-analysis/${certNumber}/${endpoint}`, { marked_by: firebase.auth().currentUser?.email||'unknown' });
+      showToast(currentlyMarked ? `Cert ${certNumber} unmarked` : `Cert ${certNumber} marked to buy`, 'success');
+      await loadCards();
+    } catch (e) { showToast('Mark-to-buy failed: ' + e.message, 'danger'); }
   }
 
   async function approveCard(certNumber) {
