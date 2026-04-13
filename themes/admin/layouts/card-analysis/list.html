@@ -275,6 +275,16 @@
         </div>
         <div id="defect-list" class="p-1"></div>
       </div>
+      <!-- Severity picker popover (shown when placing a new defect) -->
+      <div id="defect-severity-picker" class="position-absolute top-50 start-50 translate-middle bg-dark text-light p-3 rounded border border-secondary shadow" style="z-index:20;display:none;min-width:240px">
+        <div class="mb-2 fw-bold small">Defect severity</div>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-sm btn-outline-light" data-severity="microscopic">Microscopic</button>
+          <button type="button" class="btn btn-sm btn-warning" data-severity="minor">Minor</button>
+          <button type="button" class="btn btn-sm btn-danger" data-severity="major">Major</button>
+          <button type="button" class="btn btn-sm btn-link text-light p-0" data-severity="">Cancel</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1576,10 +1586,24 @@
     showToast(rv.addingDefect ? 'Click on the image to place a defect' : 'Add defect mode cancelled', 'info');
   }
 
-  function placeNewDefect(pos) {
-    const severity = prompt('Severity? (microscopic / minor / major)', 'minor');
-    if (!severity || !['microscopic','minor','major'].includes(severity)) { rv.addingDefect = false; canvas.style.cursor = 'grab'; return; }
-    const description = prompt('Description (optional)', '') || '';
+  function pickSeverity() {
+    return new Promise(resolve => {
+      const picker = document.getElementById('defect-severity-picker');
+      picker.style.display = 'block';
+      const handler = (e) => {
+        const btn = e.target.closest('[data-severity]');
+        if (!btn) return;
+        picker.style.display = 'none';
+        picker.removeEventListener('click', handler);
+        resolve(btn.dataset.severity || null);
+      };
+      picker.addEventListener('click', handler);
+    });
+  }
+
+  async function placeNewDefect(pos) {
+    const severity = await pickSeverity();
+    if (!severity) { rv.addingDefect = false; canvas.style.cursor = 'grab'; return; }
 
     // Determine which defect array to add to based on position
     const side = rv.side;
@@ -1597,7 +1621,7 @@
 
     if (!rv.defects[key]) rv.defects[key] = [];
     // Store in Claude coordinate space
-    rv.defects[key].push({ x: Math.round(pos.x), y: Math.round(pos.y), severity, description, status: 'pending' });
+    rv.defects[key].push({ x: Math.round(pos.x), y: Math.round(pos.y), severity, description: '', status: 'pending' });
     rv.dirty = true;
     rv.addingDefect = false;
     canvas.style.cursor = 'grab';

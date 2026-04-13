@@ -117,6 +117,14 @@
 
 ## Future Ideas
 
+- [ ] Edge-only image crops for batch analysis (reduce input tokens ~60-80%)
+  - Grab 4 fixed corner tiles from each scan — e.g. bottom-left crop starts at the card's bottom-left corner and extends 10% up and 10% right (square)
+  - Repeat for top-left, top-right, bottom-right
+  - Send just those 8 tiles (4 corners × front/back) to Claude instead of the full card
+  - Claude returns border-width pixel measurements + defect coords in crop-local space
+  - Frontend reconstructs the full-card overlay by mapping crop-local coords back to absolute coords
+  - Open question: do we still need a cheap full-card pass for surface defects outside the crops, or do we accept that tradeoff?
+- [ ] Prompt caching for Claude batch calls (`cache_control: ephemeral` on the system prompt) — system prompt is stable and batches submit many requests in one window
 - [ ] Support BGS/CGC/SGC cert lookups (not just PSA)
 - [ ] Price integration: show market price of 9 vs 10, calculate ROI of re-grading
 - [ ] Batch mode: scan an entire set's worth of 9s and rank them
