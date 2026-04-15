@@ -1698,7 +1698,7 @@
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
     try {
-      const res = await api('POST', `/card-analysis/${certNumber}/cv-centering`);
+      const res = await api('POST', `/card-analysis/${certNumber}/cv-centering`, {});
       showToast(`CV centering updated ${certNumber} (${res.bq_fields_written || 0} fields)`, 'success');
       await loadCards();
     } catch (e) {
