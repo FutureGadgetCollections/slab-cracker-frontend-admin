@@ -240,6 +240,7 @@
             <button class="btn btn-outline-warning active" data-layer="corners" onclick="toggleLayer(this)">Corners</button>
             <button class="btn btn-outline-danger active" data-layer="edges" onclick="toggleLayer(this)">Edges</button>
             <button class="btn btn-outline-success active" data-layer="surface" onclick="toggleLayer(this)">Surface</button>
+            <button class="btn btn-outline-secondary" data-layer="points" onclick="toggleLayer(this)">Points</button>
           </div>
         </div>
         <div class="d-flex align-items-center gap-2">
@@ -309,7 +310,8 @@
     img: null,            // loaded Image object
     imgW: 0, imgH: 0,
     zoom: 1, panX: 0, panY: 0,
-    layers: { centering: true, corners: true, edges: true, surface: true },
+    layers: { centering: true, corners: true, edges: true, surface: true, points: false },
+    cvPointsCache: {},    // parsed CV detection points per side
     dragging: null,       // {type, key, startX, startY, origVal}
     isPanning: false, panStartX: 0, panStartY: 0, panOrigX: 0, panOrigY: 0,
     addingDefect: false,
@@ -830,6 +832,7 @@
     rv.dirty = false;
     rv.addingDefect = false;
     rv.needsScaling = {}; // track which sides need one-time Claude→image scaling
+    rv.cvPointsCache = {};
 
     // Copy editable centering lines from card data
     rv.lines = {};
@@ -1001,6 +1004,7 @@
     if (rv.layers.corners) drawDefects('corner');
     if (rv.layers.edges) drawDefects('edge');
     if (rv.layers.surface) drawSurfaceDefects();
+    if (rv.layers.points) drawCVPoints();
 
     ctx.restore();
     updateInfoPanel();
@@ -1013,43 +1017,65 @@
   // All handle positions — built once per draw, used for hit-testing
   rv.handles = [];
 
+  // Default fractional positions (of the cropped card image) used when a
+  // centering value is missing, so the reviewer still sees a grabbable line.
+  const LINE_DEFAULT_FRAC = {
+    card_edge_left: 0.02, card_edge_right: 0.98,
+    art_edge_left:  0.10, art_edge_right: 0.90,
+    card_edge_top:  0.01, card_edge_bottom: 0.99,
+    art_edge_top:   0.06, art_edge_bottom:  0.94,
+  };
+
+  // Return px[field] if set, else a default at the standard fraction.
+  // Horizontal edges are fractions of imgH; vertical edges of imgW.
+  function pxOr(px, field) {
+    const v = px ? px[field] : null;
+    if (v != null) return v;
+    const frac = LINE_DEFAULT_FRAC[field];
+    if (frac == null) return 0;
+    const isHoriz = field === 'card_edge_top' || field === 'card_edge_bottom'
+                 || field === 'art_edge_top'  || field === 'art_edge_bottom';
+    return Math.round((isHoriz ? rv.imgH : rv.imgW) * frac);
+  }
+
   function drawCenteringLines() {
     const side = rv.side;
     rv.handles = []; // reset
 
-    const lrTop = rv.lines[`${side}_lr_top_pixels`];
-    const lrBot = rv.lines[`${side}_lr_bot_pixels`];
-    const tbLeft = rv.lines[`${side}_tb_left_pixels`];
-    const tbRight = rv.lines[`${side}_tb_right_pixels`];
     const lrTopKey = `${side}_lr_top_pixels`, lrBotKey = `${side}_lr_bot_pixels`;
     const tbLeftKey = `${side}_tb_left_pixels`, tbRightKey = `${side}_tb_right_pixels`;
+    // Initialize each slot so dragging a default-positioned handle can mutate it.
+    const lrTop   = rv.lines[lrTopKey]   = rv.lines[lrTopKey]   || {};
+    const lrBot   = rv.lines[lrBotKey]   = rv.lines[lrBotKey]   || {};
+    const tbLeft  = rv.lines[tbLeftKey]  = rv.lines[tbLeftKey]  || {};
+    const tbRight = rv.lines[tbRightKey] = rv.lines[tbRightKey] || {};
 
     // ── Card edges (red angled lines with handles at each endpoint) ──
-    if (lrTop && lrBot) {
+    {
       // Left card edge
-      const lxT = sx(lrTop.card_edge_left||0), lxB = sx(lrBot.card_edge_left||0);
+      const lxT = pxOr(lrTop, 'card_edge_left'), lxB = pxOr(lrBot, 'card_edge_left');
       const leftAnySel = isLineSelected(lrTopKey,'card_edge_left') || isLineSelected(lrBotKey,'card_edge_left');
       drawAngledLine(lxT, 0, lxB, rv.imgH, leftAnySel?'#ffffff':'rgba(255,0,0,0.6)', leftAnySel?3:1.5);
       addHandle(lxT, rv.imgH*0.15, lrTopKey, 'card_edge_left', 'v', 'red');
       addHandle(lxB, rv.imgH*0.85, lrBotKey, 'card_edge_left', 'v', 'red');
 
       // Right card edge
-      const rxT = sx(lrTop.card_edge_right||0), rxB = sx(lrBot.card_edge_right||0);
+      const rxT = pxOr(lrTop, 'card_edge_right'), rxB = pxOr(lrBot, 'card_edge_right');
       const rightAnySel = isLineSelected(lrTopKey,'card_edge_right') || isLineSelected(lrBotKey,'card_edge_right');
       drawAngledLine(rxT, 0, rxB, rv.imgH, rightAnySel?'#ffffff':'rgba(255,0,0,0.6)', rightAnySel?3:1.5);
       addHandle(rxT, rv.imgH*0.15, lrTopKey, 'card_edge_right', 'v', 'red');
       addHandle(rxB, rv.imgH*0.85, lrBotKey, 'card_edge_right', 'v', 'red');
     }
-    if (tbLeft && tbRight) {
+    {
       // Top card edge
-      const tyL = sy(tbLeft.card_edge_top||0), tyR = sy(tbRight.card_edge_top||0);
+      const tyL = pxOr(tbLeft, 'card_edge_top'), tyR = pxOr(tbRight, 'card_edge_top');
       const topAnySel = isLineSelected(tbLeftKey,'card_edge_top') || isLineSelected(tbRightKey,'card_edge_top');
       drawAngledLine(0, tyL, rv.imgW, tyR, topAnySel?'#ffffff':'rgba(255,0,0,0.6)', topAnySel?3:1.5);
       addHandle(rv.imgW*0.15, tyL, tbLeftKey, 'card_edge_top', 'h', 'red');
       addHandle(rv.imgW*0.85, tyR, tbRightKey, 'card_edge_top', 'h', 'red');
 
       // Bottom card edge
-      const byL = sy(tbLeft.card_edge_bottom||0), byR = sy(tbRight.card_edge_bottom||0);
+      const byL = pxOr(tbLeft, 'card_edge_bottom'), byR = pxOr(tbRight, 'card_edge_bottom');
       const botAnySel = isLineSelected(tbLeftKey,'card_edge_bottom') || isLineSelected(tbRightKey,'card_edge_bottom');
       drawAngledLine(0, byL, rv.imgW, byR, botAnySel?'#ffffff':'rgba(255,0,0,0.6)', botAnySel?3:1.5);
       addHandle(rv.imgW*0.15, byL, tbLeftKey, 'card_edge_bottom', 'h', 'red');
@@ -1065,28 +1091,29 @@
     ];
 
     measurements.forEach(m => {
-      const px = rv.lines[m.key];
-      if (!px) return;
+      const px = rv.lines[m.key] = rv.lines[m.key] || {};
       const ratio = rv.card[m.ratioKey] || '';
 
       if (m.dir === 'lr') {
         const yMid = (m.yFrom + m.yTo) / 2;
-        drawVLineSeg(sx(px.art_edge_left), m.yFrom, m.yTo, 'cyan', 2, m.key, 'art_edge_left');
-        drawVLineSeg(sx(px.art_edge_right), m.yFrom, m.yTo, 'cyan', 2, m.key, 'art_edge_right');
-        addHandle(sx(px.art_edge_left), yMid, m.key, 'art_edge_left', 'v', 'cyan');
-        addHandle(sx(px.art_edge_right), yMid, m.key, 'art_edge_right', 'v', 'cyan');
+        const aL = pxOr(px, 'art_edge_left'), aR = pxOr(px, 'art_edge_right');
+        drawVLineSeg(aL, m.yFrom, m.yTo, 'cyan', 2, m.key, 'art_edge_left');
+        drawVLineSeg(aR, m.yFrom, m.yTo, 'cyan', 2, m.key, 'art_edge_right');
+        addHandle(aL, yMid, m.key, 'art_edge_left', 'v', 'cyan');
+        addHandle(aR, yMid, m.key, 'art_edge_right', 'v', 'cyan');
         ctx.fillStyle = 'rgba(0,255,255,0.9)';
         ctx.font = '13px sans-serif';
-        ctx.fillText(`${m.label}: ${ratio}`, sx(px.art_edge_left||0)+4, m.yFrom + 18);
+        ctx.fillText(`${m.label}: ${ratio}`, aL + 4, m.yFrom + 18);
       } else {
         const xMid = (m.xFrom + m.xTo) / 2;
-        drawHLineSeg(sy(px.art_edge_top), m.xFrom, m.xTo, 'cyan', 2, m.key, 'art_edge_top');
-        drawHLineSeg(sy(px.art_edge_bottom), m.xFrom, m.xTo, 'cyan', 2, m.key, 'art_edge_bottom');
-        addHandle(xMid, sy(px.art_edge_top), m.key, 'art_edge_top', 'h', 'cyan');
-        addHandle(xMid, sy(px.art_edge_bottom), m.key, 'art_edge_bottom', 'h', 'cyan');
+        const aT = pxOr(px, 'art_edge_top'), aB = pxOr(px, 'art_edge_bottom');
+        drawHLineSeg(aT, m.xFrom, m.xTo, 'cyan', 2, m.key, 'art_edge_top');
+        drawHLineSeg(aB, m.xFrom, m.xTo, 'cyan', 2, m.key, 'art_edge_bottom');
+        addHandle(xMid, aT, m.key, 'art_edge_top', 'h', 'cyan');
+        addHandle(xMid, aB, m.key, 'art_edge_bottom', 'h', 'cyan');
         ctx.fillStyle = 'rgba(0,255,255,0.9)';
         ctx.font = '13px sans-serif';
-        ctx.fillText(`${m.label}: ${ratio}`, m.xFrom + 4, sy(px.art_edge_top||0) + 16);
+        ctx.fillText(`${m.label}: ${ratio}`, m.xFrom + 4, aT + 16);
       }
     });
 
@@ -1108,6 +1135,45 @@
 
   function addHandle(x, y, lineKey, field, dir, color) {
     rv.handles.push({ x, y, lineKey, field, dir, color });
+  }
+
+  // Scatter the raw per-scan-line CV detections that voted to produce the
+  // card/art lines. Solid dots = points that survived MAD outlier filtering
+  // (fed the line fit). Hollow dots = rejected outliers. Coords are already
+  // in the inside-slab-crop pixel space, same as the centering pixels dicts.
+  function drawCVPoints() {
+    const side = rv.side;
+    if (rv.cvPointsCache[side] === undefined) {
+      const raw = rv.card[`${side}_cv_detection_points`];
+      try { rv.cvPointsCache[side] = raw ? JSON.parse(raw) : null; }
+      catch (_) { rv.cvPointsCache[side] = null; }
+    }
+    const data = rv.cvPointsCache[side];
+    if (!data) return;
+    const colors = { card: 'rgba(255,0,0,0.9)', art: 'rgba(0,255,255,0.9)' };
+    const kinds = ['card', 'art'];
+    const sides = ['top', 'bottom', 'left', 'right'];
+    kinds.forEach(kind => {
+      const color = colors[kind];
+      sides.forEach(s => {
+        const pts = (data[kind] && data[kind][s]) || [];
+        pts.forEach(p => {
+          const r = (p.kept ? 2.5 : 2) / rv.zoom;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          if (p.kept) {
+            ctx.fillStyle = color;
+            ctx.fill();
+          } else {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1 / rv.zoom;
+            ctx.globalAlpha = 0.4;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+        });
+      });
+    });
   }
 
   function drawAngledLine(x1, y1, x2, y2, color, width) {
