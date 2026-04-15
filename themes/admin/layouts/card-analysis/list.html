@@ -833,6 +833,7 @@
     rv.addingDefect = false;
     rv.needsScaling = {}; // track which sides need one-time Claude→image scaling
     rv.cvPointsCache = {};
+    rv.cvPointsFetched = false;
 
     // Copy editable centering lines from card data
     rv.lines = {};
@@ -897,7 +898,31 @@
     const layer = btn.dataset.layer;
     rv.layers[layer] = !rv.layers[layer];
     btn.classList.toggle('active', rv.layers[layer]);
+    if (layer === 'points' && rv.layers.points && !rv.cvPointsFetched) {
+      fetchCVPoints().then(drawReview);
+      return;
+    }
     drawReview();
+  }
+
+  // Fetch the transient CV detection points for the current cert.
+  // Points are not persisted in BQ — they're recomputed on every request.
+  async function fetchCVPoints() {
+    const cert = rv.card?.cert_number;
+    if (!cert) return;
+    rv.cvPointsFetched = true;
+    const btn = document.querySelector('#review-layer-toggle button[data-layer="points"]');
+    const origHTML = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+    try {
+      const res = await api('GET', `/card-analysis/${cert}/cv-points`);
+      rv.cvPointsCache = { front: res.front || null, back: res.back || null };
+    } catch (e) {
+      showToast('CV points failed: ' + e.message, 'danger');
+      rv.cvPointsFetched = false;
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = origHTML || 'Points'; }
+    }
   }
 
   async function loadReviewImage() {
@@ -1139,16 +1164,10 @@
 
   // Scatter the raw per-scan-line CV detections that voted to produce the
   // card/art lines. Solid dots = points that survived MAD outlier filtering
-  // (fed the line fit). Hollow dots = rejected outliers. Coords are already
-  // in the inside-slab-crop pixel space, same as the centering pixels dicts.
+  // (fed the line fit). Hollow dots = rejected outliers. Coords are in
+  // inside-slab-crop pixel space, same as the centering pixels dicts.
   function drawCVPoints() {
-    const side = rv.side;
-    if (rv.cvPointsCache[side] === undefined) {
-      const raw = rv.card[`${side}_cv_detection_points`];
-      try { rv.cvPointsCache[side] = raw ? JSON.parse(raw) : null; }
-      catch (_) { rv.cvPointsCache[side] = null; }
-    }
-    const data = rv.cvPointsCache[side];
+    const data = rv.cvPointsCache[rv.side];
     if (!data) return;
     const colors = { card: 'rgba(255,0,0,0.9)', art: 'rgba(0,255,255,0.9)' };
     const kinds = ['card', 'art'];
