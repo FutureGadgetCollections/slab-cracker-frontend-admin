@@ -1,0 +1,569 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-crosshair me-2"></i>{{ .Title }}</h2>
+</div>
+
+<p class="text-muted small mb-3">
+  OpenCV centering pipeline debug view. Mouse wheel to zoom, drag to pan, double-click to reset.
+  Filled dots = kept per-scan-line detections, hollow dots = rejected by MAD outlier filter.
+  Crosses = aggregated median (fed into the line fit).
+</p>
+
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-medium mb-1">PSA Cert Number</label>
+        <input type="text" class="form-control form-control-sm font-monospace"
+               id="cv-cert-number" placeholder="e.g. 151808073"
+               onkeydown="if(event.key==='Enter') runCenteringCV()">
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary btn-sm w-100" id="btn-cv-run" onclick="runCenteringCV()">
+          <i class="bi bi-play-fill me-1"></i>Run
+        </button>
+      </div>
+      <div class="col-md-7">
+        <div id="cv-status" class="small text-muted"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-3" id="cv-controls" style="display:none">
+  <div class="card-body py-2">
+    <div class="row g-3 align-items-center small">
+      <div class="col-auto"><span class="fw-semibold">Border sampling</span> <span class="text-muted">(% of scan depth from outer edge; re-runs pipeline)</span></div>
+    </div>
+    <div class="row g-2 align-items-center small mt-1">
+      <div class="col-md-4 d-flex align-items-center gap-2">
+        <label class="mb-0 fw-medium" style="min-width:140px">Sample window</label>
+        <input type="number" class="form-control form-control-sm" id="band-sample-start" value="5"  min="0" max="100" step="1" style="max-width:60px">
+        <span>–</span>
+        <input type="number" class="form-control form-control-sm" id="band-sample-end"   value="75" min="0" max="100" step="1" style="max-width:60px">
+        <span class="text-muted">%</span>
+      </div>
+      <div class="col-md-3 d-flex align-items-center gap-2">
+        <label class="mb-0 fw-medium" style="min-width:120px">ΔE tolerance</label>
+        <input type="number" class="form-control form-control-sm" id="tolerance" value="" placeholder="auto" min="0" max="100" step="1" style="max-width:80px">
+        <span class="text-muted small">blank = auto</span>
+      </div>
+      <div class="col-md-3 d-flex align-items-center gap-2">
+        <label class="mb-0 fw-medium" style="min-width:130px">Fallback below</label>
+        <input type="number" class="form-control form-control-sm" id="fallback-threshold" value="50" min="0" max="100" step="5" style="max-width:70px">
+        <span class="text-muted">%</span>
+      </div>
+    </div>
+    <div class="row g-2 align-items-center small mt-2">
+      <div class="col-md-4 d-flex align-items-center gap-2">
+        <label class="mb-0 fw-medium" style="min-width:140px">Min crop confidence</label>
+        <input type="number" class="form-control form-control-sm" id="min-conf" value="30" min="0" max="100" step="5" style="max-width:80px">
+        <span class="text-muted">% (crops below this don't pull the line)</span>
+      </div>
+      <div class="col-md-3 offset-md-5">
+        <button class="btn btn-outline-primary btn-sm w-100" onclick="runCenteringCV()">
+          <i class="bi bi-arrow-repeat me-1"></i>Re-run
+        </button>
+      </div>
+    </div>
+
+    <hr class="my-2">
+
+    <div class="row g-2 align-items-center small">
+      <div class="col-auto"><span class="fw-semibold">Colors</span></div>
+      <div class="col-auto d-flex align-items-center gap-1">
+        <label class="mb-0">Card line</label>
+        <input type="color" class="form-control form-control-color form-control-sm" id="col-card-line" value="#00c800">
+      </div>
+      <div class="col-auto d-flex align-items-center gap-1">
+        <label class="mb-0">Art line</label>
+        <input type="color" class="form-control form-control-color form-control-sm" id="col-art-line" value="#ffdc00">
+      </div>
+      <div class="col-auto d-flex align-items-center gap-1">
+        <label class="mb-0">Card pts</label>
+        <input type="color" class="form-control form-control-color form-control-sm" id="col-card-pt" value="#00c800">
+      </div>
+      <div class="col-auto d-flex align-items-center gap-1">
+        <label class="mb-0">Art pts</label>
+        <input type="color" class="form-control form-control-color form-control-sm" id="col-art-pt" value="#ffdc00">
+      </div>
+      <div class="col-auto d-flex align-items-center gap-1">
+        <label class="mb-0">Rejected</label>
+        <input type="color" class="form-control form-control-color form-control-sm" id="col-rejected" value="#808080">
+      </div>
+      <div class="col-auto d-flex align-items-center gap-1">
+        <label class="mb-0">Crop rects</label>
+        <input type="color" class="form-control form-control-color form-control-sm" id="col-crop" value="#0080ff">
+      </div>
+      <div class="col-auto d-flex align-items-center gap-1">
+        <label class="mb-0">Sample band</label>
+        <input type="color" class="form-control form-control-color form-control-sm" id="col-sample-band" value="#ff66cc">
+      </div>
+      <div class="col-auto ms-3 d-flex align-items-center gap-3">
+        <span class="fw-semibold">Show:</span>
+        <label class="mb-0"><input type="checkbox" id="show-crops" checked> crops</label>
+        <label class="mb-0"><input type="checkbox" id="show-bands" checked> bands</label>
+        <label class="mb-0"><input type="checkbox" id="show-points" checked> points</label>
+        <label class="mb-0"><input type="checkbox" id="show-rejected" checked> rejected</label>
+        <label class="mb-0"><input type="checkbox" id="show-segments" checked> segments</label>
+        <label class="mb-0"><input type="checkbox" id="show-lines" checked> lines</label>
+        <label class="mb-0"><input type="checkbox" id="show-labels"> labels</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3" id="cv-results" style="display:none">
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-header bg-white border-0 py-2 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold small">Front <span class="text-muted ms-1" id="cv-front-info"></span></span>
+        <button class="btn btn-link btn-sm p-0 text-muted" onclick="resetView('front')" title="Reset zoom/pan">
+          <i class="bi bi-arrow-counterclockwise"></i>
+        </button>
+      </div>
+      <div class="card-body p-2">
+        <canvas id="canvas-front" style="width:100%; height:75vh; border:1px solid #ddd; border-radius:4px; cursor:grab; background:#222; display:block"></canvas>
+        <table class="table table-sm small mb-0 mt-2" id="cv-front-table"></table>
+        <details class="mt-2">
+          <summary class="small text-muted">Per-crop confidence (16)</summary>
+          <table class="table table-sm small mb-0 mt-1" id="cv-front-scores"></table>
+        </details>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-header bg-white border-0 py-2 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold small">Back <span class="text-muted ms-1" id="cv-back-info"></span></span>
+        <button class="btn btn-link btn-sm p-0 text-muted" onclick="resetView('back')" title="Reset zoom/pan">
+          <i class="bi bi-arrow-counterclockwise"></i>
+        </button>
+      </div>
+      <div class="card-body p-2">
+        <canvas id="canvas-back" style="width:100%; height:75vh; border:1px solid #ddd; border-radius:4px; cursor:grab; background:#222; display:block"></canvas>
+        <table class="table table-sm small mb-0 mt-2" id="cv-back-table"></table>
+        <details class="mt-2">
+          <summary class="small text-muted">Per-crop confidence (16)</summary>
+          <table class="table table-sm small mb-0 mt-1" id="cv-back-scores"></table>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  // ── State per side ───────────────────────────────────────────────────────
+  const sides = {
+    front: { data: null, image: null, transform: null },
+    back:  { data: null, image: null, transform: null },
+  };
+
+  function setStatus(msg, kind) {
+    const el = document.getElementById('cv-status');
+    el.textContent = msg || '';
+    el.className = 'small ' + (kind === 'error' ? 'text-danger'
+                            : kind === 'success' ? 'text-success'
+                            : kind === 'info' ? 'text-info' : 'text-muted');
+  }
+
+  // ── Canvas sizing: match internal resolution to CSS pixels × DPR ─────────
+  function fitCanvas(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+  }
+
+  // ── Coord transform: image-space → canvas-space ──────────────────────────
+  function computeInitialTransform(canvas, imgW, imgH) {
+    const scale = Math.min(canvas.width / imgW, canvas.height / imgH) * 0.98;
+    const tx = (canvas.width  - imgW * scale) / 2;
+    const ty = (canvas.height - imgH * scale) / 2;
+    return { scale, tx, ty };
+  }
+
+  // ── Drawing ──────────────────────────────────────────────────────────────
+  function draw(side) {
+    const state = sides[side];
+    if (!state.data || !state.image) return;
+    const canvas = document.getElementById('canvas-' + side);
+    const ctx = canvas.getContext('2d');
+    const { scale, tx, ty } = state.transform;
+    const data = state.data;
+
+    const colCardLine = document.getElementById('col-card-line').value;
+    const colArtLine  = document.getElementById('col-art-line').value;
+    const colCardPt   = document.getElementById('col-card-pt').value;
+    const colArtPt    = document.getElementById('col-art-pt').value;
+    const colReject   = document.getElementById('col-rejected').value;
+    const colCrop     = document.getElementById('col-crop').value;
+    const colSampleBand = document.getElementById('col-sample-band').value;
+    const showCrops    = document.getElementById('show-crops').checked;
+    const showBands    = document.getElementById('show-bands').checked;
+    const showPoints   = document.getElementById('show-points').checked;
+    const showReject   = document.getElementById('show-rejected').checked;
+    const showSegments = document.getElementById('show-segments').checked;
+    const showLines    = document.getElementById('show-lines').checked;
+    const showLabels   = document.getElementById('show-labels').checked;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, tx, ty);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(state.image, 0, 0);
+
+    // Crop rectangles.
+    if (showCrops && data.crops) {
+      ctx.strokeStyle = colCrop;
+      ctx.lineWidth = Math.max(0.5, 1 / scale);
+      ctx.font = `${10 / scale}px sans-serif`;
+      ctx.fillStyle = colCrop;
+      for (const c of data.crops) {
+        ctx.strokeRect(c.x, c.y, c.w, c.h);
+        if (showLabels) ctx.fillText(c.name, c.x + 2, c.y + 10 / scale);
+      }
+    }
+
+    // Sample window — dotted lines inside each crop perpendicular to the
+    // scan axis at the sample start/end fractions. This is the region the
+    // detector uses to pick the dominant border color.
+    if (showBands && data.crops && data.sample_band) {
+      ctx.lineWidth = Math.max(0.5, 1 / scale);
+      const dash = [4 / scale, 4 / scale];
+      const drawBand = (c, frac, color) => {
+        ctx.strokeStyle = color;
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        if (c.scan_dir === 'down') {
+          const y = c.y + frac * c.h;
+          ctx.moveTo(c.x, y); ctx.lineTo(c.x + c.w, y);
+        } else if (c.scan_dir === 'up') {
+          const y = c.y + (1 - frac) * c.h;
+          ctx.moveTo(c.x, y); ctx.lineTo(c.x + c.w, y);
+        } else if (c.scan_dir === 'right') {
+          const x = c.x + frac * c.w;
+          ctx.moveTo(x, c.y); ctx.lineTo(x, c.y + c.h);
+        } else { // 'left'
+          const x = c.x + (1 - frac) * c.w;
+          ctx.moveTo(x, c.y); ctx.lineTo(x, c.y + c.h);
+        }
+        ctx.stroke();
+      };
+      for (const c of data.crops) {
+        drawBand(c, data.sample_band[0], colSampleBand);
+        drawBand(c, data.sample_band[1], colSampleBand);
+      }
+      ctx.setLineDash([]);
+    }
+
+    // Per-scan-line points.
+    if (showPoints && data.detections) {
+      const rPt = Math.max(1, 2 / scale);
+      ctx.lineWidth = Math.max(0.5, 1 / scale);
+      for (const d of data.detections) {
+        const cardKept = new Set(d.card_kept);
+        const artKept  = new Set(d.art_kept);
+        // card points
+        for (let i = 0; i < d.card_points.length; i++) {
+          const [x, y] = d.card_points[i];
+          const kept = cardKept.has(i);
+          if (!kept && !showReject) continue;
+          ctx.beginPath();
+          ctx.arc(x, y, rPt, 0, Math.PI * 2);
+          if (kept) { ctx.fillStyle = colCardPt; ctx.fill(); }
+          else      { ctx.strokeStyle = colReject; ctx.stroke(); }
+        }
+        // art points
+        for (let i = 0; i < d.art_points.length; i++) {
+          const [x, y] = d.art_points[i];
+          const kept = artKept.has(i);
+          if (!kept && !showReject) continue;
+          ctx.beginPath();
+          ctx.arc(x, y, rPt, 0, Math.PI * 2);
+          if (kept) { ctx.fillStyle = colArtPt; ctx.fill(); }
+          else      { ctx.strokeStyle = colReject; ctx.stroke(); }
+        }
+        // aggregated crosses
+        const drawCross = (xy, color) => {
+          if (!xy) return;
+          const [x, y] = xy;
+          const s = 5 / scale;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = Math.max(1, 2 / scale);
+          ctx.beginPath();
+          ctx.moveTo(x - s, y); ctx.lineTo(x + s, y);
+          ctx.moveTo(x, y - s); ctx.lineTo(x, y + s);
+          ctx.stroke();
+        };
+        drawCross(d.card_xy, colCardPt);
+        drawCross(d.art_xy,  colArtPt);
+      }
+    }
+
+    // Per-crop segments — short lines INSIDE each crop showing what that
+    // crop voted for. Opacity scales with crop confidence so low-conf
+    // crops fade. Only drawn when the crop produced an aggregated point.
+    if (showSegments && data.detections && data.crops) {
+      const cropMap = new Map(data.crops.map(c => [c.name, c]));
+      ctx.lineWidth = Math.max(1, 1.5 / scale);
+      for (const d of data.detections) {
+        const c = cropMap.get(d.crop);
+        if (!c) continue;
+        const horizontal = c.scan_dir === 'down' || c.scan_dir === 'up';
+        const drawSeg = (xy, color, alpha) => {
+          if (!xy) return;
+          ctx.globalAlpha = Math.max(0.20, alpha);
+          ctx.strokeStyle = color;
+          ctx.beginPath();
+          if (horizontal) {
+            ctx.moveTo(c.x, xy[1]);
+            ctx.lineTo(c.x + c.w, xy[1]);
+          } else {
+            ctx.moveTo(xy[0], c.y);
+            ctx.lineTo(xy[0], c.y + c.h);
+          }
+          ctx.stroke();
+        };
+        drawSeg(d.card_xy, colCardLine, d.card_score ?? 0);
+        drawSeg(d.art_xy,  colArtLine,  d.art_score  ?? 0);
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
+    // Fitted lines.
+    if (showLines && data.lines) {
+      ctx.lineWidth = Math.max(1, 2 / scale);
+      for (const [name, L] of Object.entries(data.lines)) {
+        if (!L) continue;
+        ctx.strokeStyle = L.kind === 'card' ? colCardLine : colArtLine;
+        ctx.beginPath();
+        ctx.moveTo(L.x0, L.y0);
+        ctx.lineTo(L.x1, L.y1);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function redrawAll() {
+    draw('front');
+    draw('back');
+  }
+
+  // ── Zoom / pan handlers ──────────────────────────────────────────────────
+  function attachViewer(side) {
+    const canvas = document.getElementById('canvas-' + side);
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const state = sides[side];
+      if (!state.transform) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const cx = (e.clientX - rect.left) * dpr;
+      const cy = (e.clientY - rect.top)  * dpr;
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      const t = state.transform;
+      // Zoom centered on cursor: scale, and shift so the point under cursor stays put.
+      const imgX = (cx - t.tx) / t.scale;
+      const imgY = (cy - t.ty) / t.scale;
+      t.scale *= factor;
+      t.tx = cx - imgX * t.scale;
+      t.ty = cy - imgY * t.scale;
+      draw(side);
+    }, { passive: false });
+
+    let dragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener('mousedown', (e) => {
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      canvas.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dpr = window.devicePixelRatio || 1;
+      const t = sides[side].transform;
+      if (!t) return;
+      t.tx += (e.clientX - lastX) * dpr;
+      t.ty += (e.clientY - lastY) * dpr;
+      lastX = e.clientX; lastY = e.clientY;
+      draw(side);
+    });
+    window.addEventListener('mouseup', () => {
+      dragging = false; canvas.style.cursor = 'grab';
+    });
+    canvas.addEventListener('dblclick', () => resetView(side));
+  }
+
+  function resetView(side) {
+    const state = sides[side];
+    if (!state.data || !state.image) return;
+    const canvas = document.getElementById('canvas-' + side);
+    fitCanvas(canvas);
+    state.transform = computeInitialTransform(canvas, state.data.image_size.w, state.data.image_size.h);
+    draw(side);
+  }
+
+  // ── Load a side's data + base image ──────────────────────────────────────
+  // Render a small square of the detected border color. Backend emits
+  // OpenCV uint8 Lab (L∈0..255 == 0..100 *2.55, a/b∈0..255 with 128 offset).
+  function borderSwatch(lab) {
+    if (!lab || lab.length !== 3) return '<span class="text-muted">—</span>';
+    const L = lab[0] * (100/255);
+    const a = lab[1] - 128;
+    const b = lab[2] - 128;
+    // Lab → XYZ (D65)
+    const fy = (L + 16) / 116;
+    const fx = a / 500 + fy;
+    const fz = fy - b / 200;
+    const kappa = 903.3, epsilon = 0.008856;
+    const fx3 = fx*fx*fx, fy3 = fy*fy*fy, fz3 = fz*fz*fz;
+    const X = 0.95047 * (fx3 > epsilon ? fx3 : (116*fx - 16) / kappa);
+    const Y = 1.00000 * (L > kappa*epsilon ? fy3 : L / kappa);
+    const Z = 1.08883 * (fz3 > epsilon ? fz3 : (116*fz - 16) / kappa);
+    // XYZ → sRGB
+    let r =  3.2406*X - 1.5372*Y - 0.4986*Z;
+    let g = -0.9689*X + 1.8758*Y + 0.0415*Z;
+    let bl=  0.0557*X - 0.2040*Y + 1.0570*Z;
+    const gamma = v => v <= 0.0031308 ? 12.92*v : 1.055*Math.pow(v, 1/2.4) - 0.055;
+    r = Math.max(0, Math.min(1, gamma(r)));
+    g = Math.max(0, Math.min(1, gamma(g)));
+    bl= Math.max(0, Math.min(1, gamma(bl)));
+    const hex = '#' + [r,g,bl].map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
+    return `<span style="display:inline-block;width:14px;height:14px;background:${hex};border:1px solid #888;vertical-align:middle" title="${hex}"></span>`;
+  }
+
+  function scoreBadge(score) {
+    if (score == null) return '<span class="text-muted">—</span>';
+    let cls = 'bg-success';
+    if (score < 0.30) cls = 'bg-danger';
+    else if (score < 0.70) cls = 'bg-warning text-dark';
+    const pct = Math.round(score * 100);
+    return `<span class="badge ${cls} font-monospace" style="min-width:42px">${pct}%</span>`;
+  }
+
+  function renderTable(side, data) {
+    const table = document.getElementById(`cv-${side}-table`);
+    const info = document.getElementById(`cv-${side}-info`);
+    const meas = data.measurements || [];
+    const labels = { lr_top:'LR top', lr_bot:'LR bot', tb_left:'TB left', tb_right:'TB right' };
+    if (meas.length) {
+      table.innerHTML = `<thead><tr>
+          <th class="text-muted fw-normal">position</th>
+          <th class="text-muted fw-normal text-end">a</th><th></th>
+          <th class="text-muted fw-normal">b</th>
+          <th class="text-muted fw-normal text-end">ratio</th>
+        </tr></thead><tbody>` + meas.map(m => `<tr>
+          <td class="fw-medium">${labels[m.position] || m.position}</td>
+          <td class="font-monospace text-end">${m.left_px}px</td>
+          <td class="text-muted">/</td>
+          <td class="font-monospace">${m.right_px}px</td>
+          <td class="text-end"><span class="badge bg-secondary">${m.ratio}</span></td>
+        </tr>`).join('') + '</tbody>';
+    } else {
+      table.innerHTML = `<tr><td class="text-danger">${data.error || 'No measurements (line fit incomplete)'}</td></tr>`;
+    }
+
+    // Per-crop confidence table. `card_score`/`art_score` reflect the raw
+    // detection quality (fraction of scan lines with a valid border run).
+    // Fallback crops show their raw confidence here AND a "fallback" tag —
+    // their aggregated points are the 10%/50% default even if the score
+    // looks bad, because reconstruct.py's kept-index gate is bypassed.
+    const scores = document.getElementById(`cv-${side}-scores`);
+    const dets = data.detections || [];
+    if (dets.length) {
+      scores.innerHTML = `<thead><tr>
+          <th class="text-muted fw-normal">crop</th>
+          <th class="text-muted fw-normal">side</th>
+          <th class="text-muted fw-normal">scan</th>
+          <th class="text-muted fw-normal">kind</th>
+          <th class="text-muted fw-normal">border</th>
+          <th class="text-muted fw-normal text-end">ΔE tol</th>
+          <th class="text-muted fw-normal text-end">card</th>
+          <th class="text-muted fw-normal text-end">art</th>
+          <th class="text-muted fw-normal text-end small">card kept</th>
+          <th class="text-muted fw-normal text-end small">art kept</th>
+          <th class="text-muted fw-normal"></th>
+        </tr></thead><tbody>` + dets.map(d => `<tr>
+          <td class="font-monospace">${d.crop}</td>
+          <td>${d.side}</td>
+          <td class="text-muted">${d.scan_dir || ''}</td>
+          <td class="text-muted">${d.kind}</td>
+          <td>${borderSwatch(d.border_lab)}</td>
+          <td class="text-end font-monospace small">${d.tolerance != null ? d.tolerance.toFixed(1) : '—'}</td>
+          <td class="text-end">${scoreBadge(d.card_score)}</td>
+          <td class="text-end">${scoreBadge(d.art_score)}</td>
+          <td class="text-end text-muted small">${d.n_card_kept}/${d.n_lines}</td>
+          <td class="text-end text-muted small">${d.n_art_kept}/${d.n_lines}</td>
+          <td>${d.used_fallback ? '<span class="badge bg-warning text-dark">fallback</span>' : ''}</td>
+        </tr>`).join('') + '</tbody>';
+    } else {
+      scores.innerHTML = '';
+    }
+
+    const lowConf = dets.filter(d => Math.min(d.card_score ?? 0, d.art_score ?? 0) < 0.30).length;
+    info.textContent = `${dets.length} crops · ${lowConf} low-confidence`;
+  }
+
+  async function loadSide(side, data) {
+    sides[side].data = data;
+    const img = new Image();
+    img.onload = () => {
+      sides[side].image = img;
+      resetView(side);
+    };
+    img.src = 'data:image/png;base64,' + data.base_png_b64;
+    renderTable(side, data);
+  }
+
+  async function runCenteringCV() {
+    const cert = document.getElementById('cv-cert-number').value.trim();
+    if (!/^\d{7,10}$/.test(cert)) {
+      setStatus('Enter a valid cert number (7-10 digits)', 'error');
+      return;
+    }
+    const btn = document.getElementById('btn-cv-run');
+    btn.disabled = true;
+    const prev = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    setStatus(`Running pipeline for ${cert}…`, 'info');
+    document.getElementById('cv-results').style.display = '';
+    document.getElementById('cv-controls').style.display = '';
+
+    const sbs = +document.getElementById('band-sample-start').value / 100;
+    const sbe = +document.getElementById('band-sample-end').value   / 100;
+    const tolRaw = document.getElementById('tolerance').value.trim();
+    const fb = +document.getElementById('fallback-threshold').value / 100;
+    const mc = +document.getElementById('min-conf').value / 100;
+    let q = `?sample_band=${sbs},${sbe}&fallback_threshold=${fb}&min_conf=${mc}`;
+    if (tolRaw !== '') q += `&tolerance=${+tolRaw}`;
+
+    try {
+      const [front, back] = await Promise.all([
+        api('GET', `/centering-cv/${cert}/front${q}`),
+        api('GET', `/centering-cv/${cert}/back${q}`),
+      ]);
+      await Promise.all([loadSide('front', front), loadSide('back', back)]);
+      setStatus(`Done (${cert}).`, 'success');
+    } catch (e) {
+      setStatus(`Failed: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = prev;
+    }
+  }
+
+  // ── Wire up UI ───────────────────────────────────────────────────────────
+  window.addEventListener('load', () => {
+    attachViewer('front');
+    attachViewer('back');
+    ['col-card-line','col-art-line','col-card-pt','col-art-pt','col-rejected','col-crop',
+     'col-sample-band',
+     'show-crops','show-bands','show-points','show-rejected','show-segments','show-lines','show-labels']
+      .forEach(id => document.getElementById(id).addEventListener('input', redrawAll));
+    window.addEventListener('resize', () => { resetView('front'); resetView('back'); });
+  });
+</script>
+{{ end }}
