@@ -29,6 +29,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 PORT = int(os.environ.get("PSA_PROXY_PORT", "3001"))
 BIND = os.environ.get("PSA_PROXY_BIND", "127.0.0.1")
 API_KEY = os.environ.get("PSA_PROXY_API_KEY", "")
+# curl-impersonate binary — mimics Chrome's TLS fingerprint to bypass
+# Cloudflare managed challenges. Falls back to plain curl if unavailable.
+CURL_CHROME = os.environ.get("PSA_PROXY_CURL_CHROME", "curl_chrome116")
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -49,10 +52,15 @@ SCAN_IMAGE_RE = re.compile(
 
 
 def fetch_url(url: str) -> bytes:
-    """Fetch a URL. Uses headless browser for Cloudflare-protected sites (PSA),
-    plain curl for everything else (eBay, image downloads)."""
+    """Fetch a URL. PSA pages use a tiered fallback:
+    curl-impersonate (fast) -> Playwright browser (handles WAF challenges).
+    Everything else uses plain curl."""
     if "psacard.com" in url:
-        return _fetch_browser(url)
+        try:
+            return _fetch_impersonate(url)
+        except RuntimeError as e:
+            print(f"  curl-impersonate failed ({e}); falling back to Playwright")
+            return _fetch_playwright(url)
     return _fetch_curl(url)
 
 
@@ -69,61 +77,112 @@ def _fetch_curl(url: str) -> bytes:
     return result.stdout
 
 
-# Browser singleton — reuse across requests to avoid startup cost
-_browser_driver = None
-
-def _get_browser():
-    """Get or create a shared browser instance."""
-    global _browser_driver
-    if _browser_driver is not None:
-        try:
-            _ = _browser_driver.title  # check if still alive
-            return _browser_driver
-        except Exception:
-            _browser_driver = None
-
+def _fetch_impersonate(url: str) -> bytes:
+    """curl-impersonate — mimics Chrome's TLS/HTTP2 fingerprint so Cloudflare
+    managed challenges treat us like a real browser. Falls back to plain curl
+    if the binary isn't installed."""
+    bin_path = CURL_CHROME
     try:
-        import undetected_chromedriver as uc
-        opts = uc.ChromeOptions()
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("--disable-gpu")
-        opts.binary_location = "/usr/bin/chromium"
-        _browser_driver = uc.Chrome(options=opts, headless=False)
-        print("  Browser started (undetected_chromedriver)")
-    except ImportError:
-        # Fallback: regular selenium
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        opts = Options()
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("--disable-gpu")
-        opts.binary_location = "/usr/bin/chromium"
-        _browser_driver = webdriver.Chrome(options=opts)
-        print("  Browser started (selenium)")
-    return _browser_driver
+        result = subprocess.run(
+            [bin_path, "-s", "-L", "--max-time", "30", url],
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        print(f"  {bin_path} not found — falling back to plain curl")
+        return _fetch_curl(url)
+
+    if result.returncode != 0:
+        raise RuntimeError(f"{bin_path} failed (exit {result.returncode}): {result.stderr.decode()[:200]}")
+    if not result.stdout:
+        raise RuntimeError(f"{bin_path} returned empty response")
+    # Detect challenge response — if still blocked, surface a clear error
+    body = result.stdout
+    head = body[:4096]
+    if b"Just a moment" in head or b"cf-mitigated" in head or b"Security Check" in head:
+        raise RuntimeError("WAF challenge was not bypassed by curl-impersonate")
+    return body
 
 
-def _fetch_browser(url: str) -> bytes:
-    """Fetch a Cloudflare-protected page using a real browser.
-    Waits up to 60 seconds for the challenge to clear."""
-    import time
-    driver = _get_browser()
-    driver.get(url)
+# Playwright browser singleton — one browser process reused across requests.
+_pw_ctx = None  # {playwright, browser, context}
 
-    # Wait for Cloudflare challenge to clear (up to 60s)
-    for i in range(30):
-        time.sleep(2)
-        title = driver.title or ""
-        if "just a moment" not in title.lower():
-            break
 
-    page = driver.page_source
-    if "just a moment" in (driver.title or "").lower():
-        raise RuntimeError("Cloudflare challenge did not clear after 60 seconds")
+def _get_playwright():
+    """Lazily start a Playwright chromium browser with stealth tweaks."""
+    global _pw_ctx
+    if _pw_ctx is not None:
+        return _pw_ctx
+    from playwright.sync_api import sync_playwright
+    pw = sync_playwright().start()
+    browser = pw.chromium.launch(
+        headless=True,
+        args=[
+            "--no-sandbox",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--disable-features=IsolateOrigins,site-per-process",
+        ],
+    )
+    context = browser.new_context(
+        user_agent=USER_AGENT,
+        viewport={"width": 1920, "height": 1080},
+        locale="en-US",
+        timezone_id="America/Los_Angeles",
+        extra_http_headers={
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+        },
+    )
+    # Mask automation signals that Cloudflare checks
+    context.add_init_script(
+        """
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+        window.chrome = { runtime: {} };
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (p) => (
+            p.name === 'notifications'
+                ? Promise.resolve({state: Notification.permission})
+                : originalQuery(p)
+        );
+        """
+    )
+    _pw_ctx = {"pw": pw, "browser": browser, "context": context}
+    print("  Playwright browser started (stealth mode)")
+    return _pw_ctx
 
-    return page.encode("utf-8")
+
+def _fetch_playwright(url: str) -> bytes:
+    """Fetch via headless Chromium — executes JS, solves challenge flows.
+    Slow (~5-20s) but handles WAFs that curl-impersonate can't."""
+    ctx = _get_playwright()
+    page = ctx["context"].new_page()
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        # Wait for WAF challenge to clear (up to 60s)
+        for i in range(30):
+            title = (page.title() or "").lower()
+            html = page.content()[:2000].lower()
+            if ("just a moment" not in title and "security check" not in title
+                    and "enable javascript" not in html):
+                break
+            # Try to wait for network idle — challenge scripts doing their thing
+            try:
+                page.wait_for_load_state("networkidle", timeout=2500)
+            except Exception:
+                page.wait_for_timeout(2000)
+            if i == 5:
+                print(f"  Still on challenge after 10s, title={title!r}")
+        title = (page.title() or "").lower()
+        if "just a moment" in title or "security check" in title:
+            raise RuntimeError(f"WAF challenge did not clear: title={title!r}")
+        content = page.content()
+        return content.encode("utf-8")
+    finally:
+        page.close()
 
 
 def parse_cert_page(html: str) -> dict:

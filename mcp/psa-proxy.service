@@ -1,0 +1,27 @@
+[Unit]
+Description=PSA Cert Proxy (residential IP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=psa-proxy
+Group=psa-proxy
+WorkingDirectory=/opt/psa-proxy
+ExecStart=/opt/psa-proxy/venv/bin/python psa_proxy.py
+Restart=on-failure
+RestartSec=5
+
+Environment=PSA_PROXY_PORT=3001
+Environment=PSA_PROXY_BIND=0.0.0.0
+EnvironmentFile=-/opt/psa-proxy/.env
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/psa-proxy
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
