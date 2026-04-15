@@ -5,12 +5,6 @@
     <button class="btn btn-sm btn-outline-primary" id="btn-seed" onclick="seedCards()">
       <i class="bi bi-plus-circle me-1"></i>Seed New Certs
     </button>
-    <button class="btn btn-sm btn-outline-info" id="btn-batch-edge" onclick="batchEdgeScan()">
-      <i class="bi bi-rulers me-1"></i>Batch Edge Scan
-    </button>
-    <button class="btn btn-sm btn-outline-warning" id="btn-batch-llm" onclick="batchLLMScan()">
-      <i class="bi bi-robot me-1"></i>Batch LLM Scan
-    </button>
     <button class="btn btn-sm btn-outline-success" onclick="runDailyJob()">
       <i class="bi bi-play-circle me-1"></i>Daily Job
     </button>
@@ -125,11 +119,6 @@
     </a>
   </li>
   <li class="nav-item">
-    <a class="nav-link" href="#" data-status="batch_pending" onclick="switchTab(this, event)">
-      Batch Pending <span class="badge bg-info ms-1" id="count-batch">0</span>
-    </a>
-  </li>
-  <li class="nav-item">
     <a class="nav-link" href="#" data-status="analyzed" onclick="switchTab(this, event)">
       Needs Review <span class="badge bg-warning text-dark ms-1" id="count-analyzed">0</span>
     </a>
@@ -172,39 +161,11 @@
             <th>Front T/B</th>
             <th>Back L/R</th>
             <th>Back T/B</th>
-            <th>Corners</th>
-            <th>Edges</th>
             <th>Status</th>
             <th class="text-end pe-3">Actions</th>
           </tr>
         </thead>
         <tbody id="results-tbody"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Batch Jobs panel -->
-<div class="card shadow-sm border-0 mt-3 d-none" id="batch-panel">
-  <div class="card-header d-flex justify-content-between align-items-center py-2">
-    <span class="small fw-semibold"><i class="bi bi-collection me-2"></i>LLM Batch Jobs</span>
-    <button class="btn btn-sm btn-outline-secondary py-0" onclick="loadBatches()">
-      <i class="bi bi-arrow-clockwise"></i>
-    </button>
-  </div>
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-sm table-hover align-middle mb-0">
-        <thead class="table-light">
-          <tr>
-            <th class="ps-3">Batch ID</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th>Progress</th>
-            <th class="text-end pe-3">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="batches-tbody"></tbody>
       </table>
     </div>
   </div>
@@ -237,9 +198,6 @@
           </div>
           <div class="btn-group btn-group-sm" id="review-layer-toggle">
             <button class="btn btn-outline-info active" data-layer="centering" onclick="toggleLayer(this)">Centering</button>
-            <button class="btn btn-outline-warning active" data-layer="corners" onclick="toggleLayer(this)">Corners</button>
-            <button class="btn btn-outline-danger active" data-layer="edges" onclick="toggleLayer(this)">Edges</button>
-            <button class="btn btn-outline-success active" data-layer="surface" onclick="toggleLayer(this)">Surface</button>
             <button class="btn btn-outline-secondary" data-layer="points" onclick="toggleLayer(this)">Points</button>
           </div>
         </div>
@@ -310,7 +268,7 @@
     img: null,            // loaded Image object
     imgW: 0, imgH: 0,
     zoom: 1, panX: 0, panY: 0,
-    layers: { centering: true, corners: true, edges: true, surface: true, points: false },
+    layers: { centering: true, corners: false, edges: false, surface: false, points: false },
     cvPointsCache: {},    // parsed CV detection points per side
     dragging: null,       // {type, key, startX, startY, origVal}
     isPanning: false, panStartX: 0, panStartY: 0, panOrigX: 0, panOrigY: 0,
@@ -342,7 +300,6 @@
       document.getElementById('status-tabs').classList.remove('d-none');
       document.getElementById('filters-section').classList.remove('d-none');
       await loadCards();
-      loadBatches();
     });
   }
 
@@ -577,11 +534,8 @@
         <td>${centeringCell(scores.frontTB, 'front')}</td>
         <td>${centeringCell(scores.backLR, 'back')}</td>
         <td>${centeringCell(scores.backTB, 'back')}</td>
-        <td>${defectCell(scores.corners)}</td>
-        <td>${defectCell(scores.edges)}</td>
         <td>${statusBadge(status)}</td>
         <td class="text-end pe-3 text-nowrap">
-          ${status==='pending'?`<button class="btn btn-sm btn-outline-info me-1" onclick='runEdgeScan("${c.cert_number}",this)' title="Edge detection (free)"><i class="bi bi-rulers"></i></button><button class="btn btn-sm btn-outline-warning me-1" onclick='runLLMScan("${c.cert_number}",this)' title="Full LLM analysis"><i class="bi bi-robot"></i></button>`:''}
           <button class="btn btn-sm btn-outline-secondary me-1" onclick='runCVCentering("${c.cert_number}",this)' title="Run OpenCV centering"><i class="bi bi-crosshair"></i></button>
           <button class="btn btn-sm btn-outline-primary" onclick='openReview("${c.cert_number}")'><i class="bi bi-eye"></i></button>
           ${c.ebay_url ? `<a href="${esc(c.ebay_url)}" target="_blank" class="btn btn-sm btn-outline-success ms-1" title="Buy on eBay"><i class="bi bi-cart"></i></a>` : ''}
@@ -1115,9 +1069,23 @@
       { key: tbRightKey, dir: 'tb', xFrom: rv.imgW*0.6, xTo: rv.imgW, label: 'TB Right', ratioKey: `${side}_tb_right_ratio` },
     ];
 
+    // Traffic-light colors drawn on the canvas. Match the info-panel /
+    // list-table thresholds: front 47-52 green / <45 or >55 red / else
+    // yellow; back 45-55 / <40 or >60 / else yellow.
+    const ratioColorCss = r => {
+      const larger = parseLarger(r);
+      if (larger == null) return 'rgba(0,255,255,0.9)';
+      const c = centeringColor(larger, side);
+      if (c === 'success') return 'rgba(0,220,120,1)';
+      if (c === 'warning') return 'rgba(255,200,0,1)';
+      if (c === 'danger')  return 'rgba(255,80,80,1)';
+      return 'rgba(0,255,255,0.9)';
+    };
+
     measurements.forEach(m => {
       const px = rv.lines[m.key] = rv.lines[m.key] || {};
       const ratio = rv.card[m.ratioKey] || '';
+      const labelColor = ratioColorCss(ratio);
 
       if (m.dir === 'lr') {
         const yMid = (m.yFrom + m.yTo) / 2;
@@ -1126,7 +1094,7 @@
         drawVLineSeg(aR, m.yFrom, m.yTo, 'cyan', 2, m.key, 'art_edge_right');
         addHandle(aL, yMid, m.key, 'art_edge_left', 'v', 'cyan');
         addHandle(aR, yMid, m.key, 'art_edge_right', 'v', 'cyan');
-        ctx.fillStyle = 'rgba(0,255,255,0.9)';
+        ctx.fillStyle = labelColor;
         ctx.font = '13px sans-serif';
         ctx.fillText(`${m.label}: ${ratio}`, aL + 4, m.yFrom + 18);
       } else {
@@ -1136,7 +1104,7 @@
         drawHLineSeg(aB, m.xFrom, m.xTo, 'cyan', 2, m.key, 'art_edge_bottom');
         addHandle(xMid, aT, m.key, 'art_edge_top', 'h', 'cyan');
         addHandle(xMid, aB, m.key, 'art_edge_bottom', 'h', 'cyan');
-        ctx.fillStyle = 'rgba(0,255,255,0.9)';
+        ctx.fillStyle = labelColor;
         ctx.font = '13px sans-serif';
         ctx.fillText(`${m.label}: ${ratio}`, m.xFrom + 4, aT + 16);
       }
@@ -1321,10 +1289,18 @@
     const side = rv.side;
     const c = rv.card;
 
-    // Centering ratios summary
+    // Centering ratios summary — color each ratio using the same
+    // front/back thresholds as the list table (green / yellow / red).
+    const fmt = key => {
+      const r = c[key];
+      if (!r) return '—';
+      const larger = parseLarger(r);
+      const color = larger == null ? 'muted' : centeringColor(larger, side);
+      return `<span class="text-${color} fw-medium">${r}</span>`;
+    };
     let centerHtml = '';
-    centerHtml += `LR Top: ${c[`${side}_lr_top_ratio`]||'—'} &nbsp; LR Bot: ${c[`${side}_lr_bot_ratio`]||'—'}<br>`;
-    centerHtml += `TB Left: ${c[`${side}_tb_left_ratio`]||'—'} &nbsp; TB Right: ${c[`${side}_tb_right_ratio`]||'—'}`;
+    centerHtml += `LR Top: ${fmt(`${side}_lr_top_ratio`)} &nbsp; LR Bot: ${fmt(`${side}_lr_bot_ratio`)}<br>`;
+    centerHtml += `TB Left: ${fmt(`${side}_tb_left_ratio`)} &nbsp; TB Right: ${fmt(`${side}_tb_right_ratio`)}`;
     document.getElementById('review-centering-info').innerHTML = centerHtml;
 
     // Line picker grid
@@ -1888,23 +1864,6 @@
     };
   }
 
-  // ── LLM scan (Claude API via backend) ──────────────────────────────────
-
-  async function runLLMScan(certNumber, btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    try {
-      const result = await api('POST', `/card-analysis/${certNumber}/llm-scan`);
-      showToast(`LLM analysis complete for ${certNumber}: grade ${result.overall_grade || '?'}`, 'success');
-      await loadCards();
-    } catch (e) {
-      showToast('LLM scan failed: ' + e.message, 'danger');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-robot"></i>';
-    }
-  }
-
   // ── Batch operations ───────────────────────────────────────────────────
 
   async function runEdgeScanCore(c) {
@@ -1972,98 +1931,5 @@
     await loadCards();
   }
 
-  // ── Batch LLM (Claude Batch API) ────────────────────────────────────
-
-  let batchPollInterval = null;
-
-  async function batchLLMScan() {
-    const btn = document.getElementById('btn-batch-llm');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Submitting...';
-    try {
-      const result = await api('POST', '/card-analysis/batch-submit');
-      showToast(`Batch submitted: ${result.batch_id} (${result.request_count} certs). Processing may take up to 24 hours.`, 'success');
-      await loadBatches();
-    } catch (e) {
-      showToast('Batch submit failed: ' + e.message, 'danger');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-robot me-1"></i>Batch LLM Scan';
-    }
-  }
-
-  async function loadBatches() {
-    try {
-      const batches = await api('GET', '/card-analysis/batches') || [];
-      const panel = document.getElementById('batch-panel');
-      if (batches.length === 0) { panel.classList.add('d-none'); stopBatchPolling(); return; }
-      panel.classList.remove('d-none');
-      document.getElementById('batches-tbody').innerHTML = batches.map(b => {
-        const status = b.processing_status || 'unknown';
-        const rc = b.request_counts || {};
-        const total = (rc.processing||0) + (rc.succeeded||0) + (rc.errored||0) + (rc.canceled||0) + (rc.expired||0);
-        const created = b.created_at ? new Date(b.created_at).toLocaleString() : '—';
-        const shortId = (b.id || '').replace('msgbatch_', '').substring(0, 12) + '...';
-        let badge, progress, actions;
-        if (status === 'ended') {
-          badge = `<span class="badge bg-success">Ended</span>`;
-          progress = `<span class="text-success">${rc.succeeded||0}</span>/${total}`;
-          if (rc.errored) progress += ` <span class="text-danger">(${rc.errored} errors)</span>`;
-          actions = `<button class="btn btn-sm btn-outline-success" onclick="collectBatch('${esc(b.id)}')"><i class="bi bi-download me-1"></i>Collect</button>`;
-        } else if (status === 'in_progress' || status === 'processing') {
-          badge = `<span class="badge bg-warning text-dark"><span class="spinner-border spinner-border-sm me-1" style="width:0.7em;height:0.7em"></span>Processing</span>`;
-          progress = `${rc.succeeded||0}/${total} done`;
-          actions = '<span class="text-muted small">Waiting...</span>';
-        } else if (status === 'canceling' || status === 'canceled') {
-          badge = `<span class="badge bg-secondary">Canceled</span>`;
-          progress = '—';
-          actions = '';
-        } else {
-          badge = `<span class="badge bg-secondary">${esc(status)}</span>`;
-          progress = '—';
-          actions = '';
-        }
-        return `<tr>
-          <td class="ps-3 font-monospace small">${shortId}</td>
-          <td>${badge}</td>
-          <td class="small">${created}</td>
-          <td class="small">${progress}</td>
-          <td class="text-end pe-3">${actions}</td>
-        </tr>`;
-      }).join('');
-      // Auto-poll if any batch is still processing
-      const hasActive = batches.some(b => b.processing_status === 'in_progress' || b.processing_status === 'processing');
-      if (hasActive) startBatchPolling(); else stopBatchPolling();
-    } catch (e) {
-      // Silently ignore batch load errors (endpoint may not exist yet)
-    }
-  }
-
-  async function collectBatch(batchId) {
-    const btn = event.target.closest('button');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Collecting...'; }
-    try {
-      const result = await api('POST', `/card-analysis/batch-collect/${batchId}`);
-      if (result.status === 'ended') {
-        showToast(`Batch collected: ${result.succeeded||0} succeeded, ${result.errored||0} errored`, 'success');
-        await loadCards();
-      } else {
-        showToast(`Batch still ${result.status}. Check back later.`, 'warning');
-      }
-      await loadBatches();
-    } catch (e) {
-      showToast('Collect failed: ' + e.message, 'danger');
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download me-1"></i>Collect'; }
-    }
-  }
-
-  function startBatchPolling() {
-    if (batchPollInterval) return;
-    batchPollInterval = setInterval(loadBatches, 30000);
-  }
-
-  function stopBatchPolling() {
-    if (batchPollInterval) { clearInterval(batchPollInterval); batchPollInterval = null; }
-  }
 </script>
 {{ end }}
