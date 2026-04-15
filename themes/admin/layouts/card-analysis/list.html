@@ -580,6 +580,7 @@
         <td>${statusBadge(status)}</td>
         <td class="text-end pe-3 text-nowrap">
           ${status==='pending'?`<button class="btn btn-sm btn-outline-info me-1" onclick='runEdgeScan("${c.cert_number}",this)' title="Edge detection (free)"><i class="bi bi-rulers"></i></button><button class="btn btn-sm btn-outline-warning me-1" onclick='runLLMScan("${c.cert_number}",this)' title="Full LLM analysis"><i class="bi bi-robot"></i></button>`:''}
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick='runCVCentering("${c.cert_number}",this)' title="Run OpenCV centering"><i class="bi bi-crosshair"></i></button>
           <button class="btn btn-sm btn-outline-primary" onclick='openReview("${c.cert_number}")'><i class="bi bi-eye"></i></button>
           ${c.ebay_url ? `<a href="${esc(c.ebay_url)}" target="_blank" class="btn btn-sm btn-outline-success ms-1" title="Buy on eBay"><i class="bi bi-cart"></i></a>` : ''}
           ${status==='analyzed'?`<button class="btn btn-sm btn-success ms-1" onclick='approveCard("${c.cert_number}")'><i class="bi bi-check-lg"></i></button>`:''}
@@ -1690,6 +1691,23 @@
   // card edges and art edges. Same approach as the reference cards page.
 
   // CROP already defined above — reuse it
+
+  // Run the OpenCV centering pipeline server-side and refresh the row so
+  // the eyeball opens onto CV-fitted lines the reviewer can drag to correct.
+  async function runCVCentering(certNumber, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      const res = await api('POST', `/card-analysis/${certNumber}/cv-centering`);
+      showToast(`CV centering updated ${certNumber} (${res.bq_fields_written || 0} fields)`, 'success');
+      await loadCards();
+    } catch (e) {
+      showToast('CV run failed: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-crosshair"></i>';
+    }
+  }
 
   async function runEdgeScan(certNumber, btn) {
     const c = allCards.find(x => x.cert_number === certNumber);
