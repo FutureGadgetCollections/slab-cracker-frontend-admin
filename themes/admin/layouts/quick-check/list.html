@@ -4,46 +4,37 @@
 </div>
 
 <p class="text-muted small mb-3">
-  Look up a cert on PSA, drag the front/back scans here, then run CV centering.
+  Enter a cert number to open PSA's verification page, then drag the front/back scans here and run CV centering.
 </p>
 
-<!-- ── Step 1: Cert lookup ───────────────────────────────────────────────── -->
+<!-- ── Cert input ────────────────────────────────────────────────────────── -->
 <div class="card shadow-sm border-0 mb-3">
-  <div class="card-header bg-white border-0 py-2">
-    <span class="fw-semibold small">1. Look Up Cert</span>
-  </div>
   <div class="card-body py-3">
     <div class="row g-2 align-items-end">
       <div class="col-md-3">
         <label class="form-label small fw-medium mb-1">PSA Cert Number</label>
         <input type="text" class="form-control form-control-sm font-monospace"
-               id="cert-number" placeholder="e.g. 151808073"
-               onkeydown="if(event.key==='Enter') runLookup()">
+               id="cert-number" placeholder="e.g. 134439689"
+               onkeydown="if(event.key==='Enter') openPSA()">
       </div>
       <div class="col-md-2">
-        <button class="btn btn-primary btn-sm w-100" id="btn-lookup" onclick="runLookup()">
-          <i class="bi bi-search me-1"></i>Lookup
+        <button class="btn btn-primary btn-sm w-100" id="btn-open" onclick="openPSA()">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Open on PSA
         </button>
       </div>
       <div class="col-md-7">
-        <div id="lookup-status" class="small text-muted"></div>
+        <div id="status" class="small text-muted"></div>
       </div>
-    </div>
-
-    <div id="lookup-results" class="mt-3" style="display:none">
-      <table class="table table-sm small mb-0">
-        <tbody id="lookup-table"></tbody>
-      </table>
     </div>
   </div>
 </div>
 
-<!-- ── Step 2: Drop front/back scans ─────────────────────────────────────── -->
+<!-- ── Drop front/back scans ─────────���───────────────────────────────────── -->
 <div id="scan-section" style="display:none">
   <div class="card shadow-sm border-0 mb-3">
     <div class="card-header bg-white border-0 py-2">
-      <span class="fw-semibold small">2. Drop Front & Back Scans</span>
-      <span class="text-muted small ms-2">Drag images from the PSA cert page</span>
+      <span class="fw-semibold small">Drop Front & Back Scans</span>
+      <span class="text-muted small ms-2">Save images from the PSA page, then drop them here</span>
     </div>
     <div class="card-body py-3">
       <div class="row g-3">
@@ -84,20 +75,19 @@
                  onchange="handleFileInput(this.files, 'back')">
         </div>
       </div>
-      <div class="mt-3 d-flex gap-2 align-items-center">
-        <button class="btn btn-success btn-sm" id="btn-upload-cv" onclick="uploadAndRunCV()" disabled>
-          <i class="bi bi-cloud-upload me-1"></i>Upload & Run CV Centering
+      <div class="mt-3">
+        <button class="btn btn-success btn-sm" id="btn-run" onclick="uploadAndRunCV()" disabled>
+          <i class="bi bi-crosshair me-1"></i>Run CV Centering
         </button>
-        <div id="upload-status" class="small text-muted"></div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ── Step 3: CV Centering results ──────────────────────────────────────── -->
+<!-- ── CV Centering results ──────────────���───────────────────────────────── -->
 <div id="cv-results" style="display:none">
   <div class="d-flex align-items-center justify-content-between mb-2">
-    <h5 class="h6 fw-semibold mb-0">3. CV Centering Results</h5>
+    <h5 class="h6 fw-semibold mb-0">CV Centering Results</h5>
     <div class="d-flex gap-3 small">
       <label><input type="checkbox" id="show-crops" checked> crops</label>
       <label><input type="checkbox" id="show-points" checked> points</label>
@@ -145,100 +135,52 @@
 
 {{ define "page-scripts" }}
 <script>
-  // ── State ──────────────────────────────────────────────────────────────────
-  let lookupData = null;
+  // ── State ──────────────────────────────────────────���───────────────────────
+  let certMeta = null;   // from background lookup
   const scanFiles = { front: null, back: null };
 
-  // ── Lookup ─────────────────────────────────────────────────────────────────
-  function setLookupStatus(msg, kind) {
-    const el = document.getElementById('lookup-status');
+  function setStatus(msg, kind) {
+    const el = document.getElementById('status');
     el.textContent = msg || '';
     el.className = 'small ' + (kind === 'error' ? 'text-danger'
                               : kind === 'success' ? 'text-success'
                               : kind === 'info' ? 'text-info' : 'text-muted');
   }
 
-  async function runLookup() {
+  // ── Open PSA + background metadata fetch ──────��────────────────────────────
+  function openPSA() {
     const cert = document.getElementById('cert-number').value.trim();
     if (!/^\d{7,10}$/.test(cert)) {
-      setLookupStatus('Enter a valid cert number (7-10 digits)', 'error');
+      setStatus('Enter a valid cert number (7-10 digits)', 'error');
       return;
     }
-    const btn = document.getElementById('btn-lookup');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Looking up...';
-    setLookupStatus(`Looking up cert ${cert}...`, 'info');
 
-    try {
-      const data = await api('GET', `/certs/${cert}/lookup`);
-      lookupData = data;
-      renderLookup(cert, data);
+    // Open PSA page immediately
+    window.open(`https://www.psacard.com/cert/${cert}/psa`, '_blank');
+    document.getElementById('scan-section').style.display = '';
+    setStatus('PSA page opened. Save the front/back scans and drop them below.', 'success');
 
-      // Open PSA cert page so user can grab the scans
-      window.open(`https://www.psacard.com/cert/${cert}`, '_blank');
+    // Fetch metadata in background (needed for GCS path construction)
+    certMeta = null;
+    api('GET', `/certs/${cert}/lookup`).then(data => {
+      certMeta = data;
+    }).catch(() => {
+      // Non-fatal — we'll handle it at upload time
+    });
 
-      document.getElementById('scan-section').style.display = '';
-      setLookupStatus('PSA cert page opened in new tab. Drag the scans below.', 'success');
-      checkUploadReady();
-    } catch (e) {
-      setLookupStatus(`Lookup failed: ${e.message}`, 'error');
-      document.getElementById('lookup-results').style.display = 'none';
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-search me-1"></i>Lookup';
-    }
+    checkReady();
   }
 
-  function renderLookup(cert, data) {
-    const table = document.getElementById('lookup-table');
-    const rows = [
-      ['Cert #', `<span class="font-monospace fw-bold">${cert}</span>`],
-      ['Grade', `<span class="badge ${data.grade >= 10 ? 'bg-success' : data.grade >= 9 ? 'bg-primary' : 'bg-secondary'}">${data.grading_company || 'PSA'} ${data.grade}</span>`],
-      ['Card', data.card_name || '\u2014'],
-      ['Set', `${data.set_code || '\u2014'} <span class="text-muted">(${data.game || '\u2014'})</span>`],
-      ['Year', data.era || data.psa_year || '\u2014'],
-      ['Rarity', data.rarity || '\u2014'],
-      ['Treatment', data.treatment || '\u2014'],
-    ];
-    if (data.existing_card) {
-      rows.push(['Status', '<span class="badge bg-info">Already in system</span>']);
-    }
-    table.innerHTML = rows.map(([k, v]) =>
-      `<tr><td class="fw-medium text-muted" style="width:100px">${k}</td><td>${v}</td></tr>`
-    ).join('');
-    document.getElementById('lookup-results').style.display = '';
-  }
-
-  // ── Scan drop handling ─────────────────────────────────────────────────────
+  // ── Scan drop handling ───���─────────────────────────────────────────────────
   function handleScanDrop(e, side) {
     e.preventDefault();
     e.currentTarget.style.borderColor = '#ccc';
-
-    // Try to get image from drag (could be URL drag from browser or file)
     const files = e.dataTransfer.files;
     if (files.length) {
       setScanFile(files[0], side);
-      return;
+    } else {
+      showToast('Drop a saved image file (right-click > Save Image on the PSA page)', 'warning');
     }
-
-    // Handle image dragged directly from a web page (URL)
-    const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
-    if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-      loadImageFromUrl(url, side);
-      return;
-    }
-
-    // Handle image dragged as HTML (e.g. <img> from page)
-    const html = e.dataTransfer.getData('text/html');
-    if (html) {
-      const m = html.match(/src="([^"]+)"/);
-      if (m && m[1]) {
-        loadImageFromUrl(m[1], side);
-        return;
-      }
-    }
-
-    showToast('Could not read the dropped image. Try right-click > Save Image, then drop the file.', 'warning');
   }
 
   function handleFileInput(files, side) {
@@ -251,45 +193,6 @@
       return;
     }
     scanFiles[side] = file;
-    showScanPreview(file, side);
-    checkUploadReady();
-  }
-
-  function loadImageFromUrl(url, side) {
-    // Fetch the image via a proxy-less approach: create an img, draw to canvas, get blob
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], `${side}.jpg`, { type: 'image/jpeg' });
-          scanFiles[side] = file;
-          // Show the original image URL as preview
-          document.getElementById(`drop-${side}-preview`).src = url;
-          document.getElementById(`drop-${side}-preview`).style.display = '';
-          document.getElementById(`drop-${side}-placeholder`).style.display = 'none';
-          checkUploadReady();
-        }
-      }, 'image/jpeg', 0.95);
-    };
-    img.onerror = () => {
-      // CORS blocked — show the URL as preview but ask user to save locally
-      document.getElementById(`drop-${side}-preview`).src = url;
-      document.getElementById(`drop-${side}-preview`).style.display = '';
-      document.getElementById(`drop-${side}-placeholder`).style.display = 'none';
-
-      // Try fetching as blob directly
-      fetch(url, { mode: 'no-cors' }).catch(() => {});
-      showToast(`CORS blocked for ${side} scan. Right-click the image on PSA, "Save Image As", then drop the saved file here.`, 'warning');
-    };
-    img.src = url;
-  }
-
-  function showScanPreview(file, side) {
     const reader = new FileReader();
     reader.onload = (e) => {
       document.getElementById(`drop-${side}-preview`).src = e.target.result;
@@ -297,61 +200,57 @@
       document.getElementById(`drop-${side}-placeholder`).style.display = 'none';
     };
     reader.readAsDataURL(file);
+    checkReady();
   }
 
-  function checkUploadReady() {
-    const ready = lookupData && scanFiles.front && scanFiles.back;
-    document.getElementById('btn-upload-cv').disabled = !ready;
+  function checkReady() {
+    document.getElementById('btn-run').disabled = !(scanFiles.front && scanFiles.back);
   }
 
-  // ── Upload scans + run CV ──────────────────────────────────────────────────
-  function setUploadStatus(msg, kind) {
-    const el = document.getElementById('upload-status');
-    el.textContent = msg || '';
-    el.className = 'small ' + (kind === 'error' ? 'text-danger'
-                              : kind === 'success' ? 'text-success'
-                              : kind === 'info' ? 'text-info' : 'text-muted');
-  }
-
+  // ── Upload + run CV centering ──────────────────────────────────────────────
   async function uploadAndRunCV() {
     const cert = document.getElementById('cert-number').value.trim();
-    if (!lookupData || !scanFiles.front || !scanFiles.back) return;
+    if (!scanFiles.front || !scanFiles.back) return;
 
-    const btn = document.getElementById('btn-upload-cv');
+    const btn = document.getElementById('btn-run');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading scans...';
+    setStatus('Uploading scans...', 'info');
 
     try {
-      // Convert files to base64 for scraped-submit
-      setUploadStatus('Reading scan files...', 'info');
+      // Wait for background lookup if still pending
+      if (!certMeta) {
+        setStatus('Waiting for cert metadata...', 'info');
+        certMeta = await api('GET', `/certs/${cert}/lookup`);
+      }
+
+      // Convert files to base64
       const [frontB64, backB64] = await Promise.all([
         fileToBase64(scanFiles.front),
         fileToBase64(scanFiles.back),
       ]);
 
-      // Submit via scraped-submit (creates BQ record + uploads to GCS)
-      setUploadStatus('Uploading scans to GCS...', 'info');
-      const submitPayload = {
+      // Upload via scraped-submit (gets scans into GCS so CV pipeline can read them)
+      await api('POST', '/certs/scraped-submit', {
         cert_number: cert,
         fields: {
-          'Item Grade':       lookupData.psa_grade_text || '',
-          'Year':             lookupData.psa_year || lookupData.era || '',
-          'Brand/Title':      lookupData.psa_brand || '',
-          'Subject':          lookupData.psa_subject || '',
-          'Card Number':      lookupData.card_number || '',
-          'Category':         lookupData.psa_category || '',
-          'Variety/Pedigree': lookupData.psa_variety || '',
+          'Item Grade':       certMeta.psa_grade_text || '',
+          'Year':             certMeta.psa_year || certMeta.era || '',
+          'Brand/Title':      certMeta.psa_brand || '',
+          'Subject':          certMeta.psa_subject || '',
+          'Card Number':      certMeta.card_number || '',
+          'Category':         certMeta.psa_category || '',
+          'Variety/Pedigree': certMeta.psa_variety || '',
         },
         scans: [
-          { url: '', data: frontB64, content_type: scanFiles.front.type || 'image/jpeg' },
-          { url: '', data: backB64,  content_type: scanFiles.back.type  || 'image/jpeg' },
+          { url: '', data: frontB64, content_type: 'image/jpeg' },
+          { url: '', data: backB64,  content_type: 'image/jpeg' },
         ],
         role: 'candidate',
-      };
-      await api('POST', '/certs/scraped-submit', submitPayload);
+      });
 
       // Run CV centering
-      setUploadStatus('Running CV centering pipeline...', 'info');
+      setStatus('Running CV centering...', 'info');
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running CV...';
       document.getElementById('cv-results').style.display = '';
 
@@ -360,29 +259,25 @@
         api('GET', `/centering-cv/${cert}/back`),
       ]);
       await Promise.all([loadSide('front', front), loadSide('back', back)]);
-      setUploadStatus(`Done! CV centering complete for ${cert}.`, 'success');
+      setStatus('Done.', 'success');
     } catch (e) {
-      setUploadStatus(`Failed: ${e.message}`, 'error');
+      setStatus(`Failed: ${e.message}`, 'error');
     } finally {
       btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Upload & Run CV Centering';
+      btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Run CV Centering';
     }
   }
 
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        // Strip the data:...;base64, prefix
-        const b64 = reader.result.split(',')[1];
-        resolve(b64);
-      };
+      reader.onload = () => resolve(reader.result.split(',')[1]);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
   }
 
-  // ── Canvas rendering ───────────────────────────────────────────────────────
+  // ── Canvas rendering ────────────��──────────────────────────────────────────
   const cvSides = {
     front: { data: null, image: null, transform: null },
     back:  { data: null, image: null, transform: null },
@@ -397,9 +292,7 @@
 
   function computeInitialTransform(canvas, imgW, imgH) {
     const scale = Math.min(canvas.width / imgW, canvas.height / imgH) * 0.98;
-    const tx = (canvas.width  - imgW * scale) / 2;
-    const ty = (canvas.height - imgH * scale) / 2;
-    return { scale, tx, ty };
+    return { scale, tx: (canvas.width - imgW * scale) / 2, ty: (canvas.height - imgH * scale) / 2 };
   }
 
   function draw(side) {
@@ -439,17 +332,15 @@
         const cardKept = new Set(d.card_kept);
         const artKept  = new Set(d.art_kept);
         for (let i = 0; i < d.card_points.length; i++) {
-          const [x, y] = d.card_points[i];
           if (!cardKept.has(i)) continue;
-          ctx.beginPath();
-          ctx.arc(x, y, rPt, 0, Math.PI * 2);
+          const [x, y] = d.card_points[i];
+          ctx.beginPath(); ctx.arc(x, y, rPt, 0, Math.PI * 2);
           ctx.fillStyle = '#00c800'; ctx.fill();
         }
         for (let i = 0; i < d.art_points.length; i++) {
-          const [x, y] = d.art_points[i];
           if (!artKept.has(i)) continue;
-          ctx.beginPath();
-          ctx.arc(x, y, rPt, 0, Math.PI * 2);
+          const [x, y] = d.art_points[i];
+          ctx.beginPath(); ctx.arc(x, y, rPt, 0, Math.PI * 2);
           ctx.fillStyle = '#ffdc00'; ctx.fill();
         }
       }
@@ -457,13 +348,10 @@
 
     if (showLines && data.lines) {
       ctx.lineWidth = Math.max(1, 2 / scale);
-      for (const [name, L] of Object.entries(data.lines)) {
+      for (const [, L] of Object.entries(data.lines)) {
         if (!L) continue;
         ctx.strokeStyle = L.kind === 'card' ? '#00c800' : '#ffdc00';
-        ctx.beginPath();
-        ctx.moveTo(L.x0, L.y0);
-        ctx.lineTo(L.x1, L.y1);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(L.x0, L.y0); ctx.lineTo(L.x1, L.y1); ctx.stroke();
       }
     }
   }
@@ -479,7 +367,7 @@
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       const cx = (e.clientX - rect.left) * dpr;
-      const cy = (e.clientY - rect.top)  * dpr;
+      const cy = (e.clientY - rect.top) * dpr;
       const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
       const t = state.transform;
       const imgX = (cx - t.tx) / t.scale;
@@ -542,26 +430,22 @@
           <td class="text-end"><span class="badge bg-secondary">${m.ratio}</span></td>
         </tr>`).join('') + '</tbody>';
     } else {
-      table.innerHTML = `<tr><td class="text-danger">${data.error || 'No measurements (line fit incomplete)'}</td></tr>`;
+      table.innerHTML = `<tr><td class="text-danger">${data.error || 'No measurements'}</td></tr>`;
     }
 
     const dets = data.detections || [];
     const lowConf = dets.filter(d => Math.min(d.card_score ?? 0, d.art_score ?? 0) < 0.30).length;
-    info.textContent = `${dets.length} crops \u00b7 ${lowConf} low-confidence`;
+    info.textContent = `${dets.length} crops \u00b7 ${lowConf} low-conf`;
   }
 
   async function loadSide(side, data) {
     cvSides[side].data = data;
     const img = new Image();
-    img.onload = () => {
-      cvSides[side].image = img;
-      resetView(side);
-    };
+    img.onload = () => { cvSides[side].image = img; resetView(side); };
     img.src = 'data:image/png;base64,' + data.base_png_b64;
     renderMeasurements(side, data);
   }
 
-  // ── Init ───────────────────────────────────────────────────────────────────
   window.addEventListener('load', () => {
     attachViewer('front');
     attachViewer('back');
