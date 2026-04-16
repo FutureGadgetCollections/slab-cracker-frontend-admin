@@ -5,6 +5,7 @@
 
 <p class="text-muted small mb-3">
   Enter a cert number to open PSA's verification page, then drag the front/back scans here and run CV centering.
+  Click a line endpoint to select it, then drag or scroll to adjust.
 </p>
 
 <!-- ── Cert input ────────────────────────────────────────────────────────── -->
@@ -26,7 +27,7 @@
   </div>
 </div>
 
-<!-- ── Drop front/back scans ─────────────────────────────────────────────── -->
+<!-- ── Drop front/back scans ───────────────────────────────────────────��─── -->
 <div class="card shadow-sm border-0 mb-3">
   <div class="card-header bg-white border-0 py-2">
     <span class="fw-semibold small">Drop Front & Back Scans</span>
@@ -85,8 +86,8 @@
   <div class="d-flex align-items-center justify-content-between mb-2">
     <h5 class="h6 fw-semibold mb-0">CV Centering Results</h5>
     <div class="d-flex gap-3 small">
-      <label><input type="checkbox" id="show-crops" checked> crops</label>
-      <label><input type="checkbox" id="show-points" checked> points</label>
+      <label><input type="checkbox" id="show-crops"> crops</label>
+      <label><input type="checkbox" id="show-points"> points</label>
       <label><input type="checkbox" id="show-lines" checked> lines</label>
       <label><input type="checkbox" id="show-labels"> labels</label>
     </div>
@@ -141,7 +142,6 @@
                               : kind === 'info' ? 'text-info' : 'text-muted');
   }
 
-  // ── Open PSA cert page ─────────────────────────────────────────────────────
   function openPSA() {
     const cert = document.getElementById('cert-number').value.trim();
     if (!/^\d{7,10}$/.test(cert)) {
@@ -156,11 +156,8 @@
     e.preventDefault();
     e.currentTarget.style.borderColor = '#ccc';
     const files = e.dataTransfer.files;
-    if (files.length) {
-      setScanFile(files[0], side);
-    } else {
-      showToast('Drop a saved image file (right-click > Save Image on the PSA page)', 'warning');
-    }
+    if (files.length) setScanFile(files[0], side);
+    else showToast('Drop a saved image file (right-click > Save Image on the PSA page)', 'warning');
   }
 
   function handleFileInput(files, side) {
@@ -168,10 +165,7 @@
   }
 
   function setScanFile(file, side) {
-    if (!file.type.startsWith('image/')) {
-      showToast('Please drop an image file', 'warning');
-      return;
-    }
+    if (!file.type.startsWith('image/')) { showToast('Please drop an image file', 'warning'); return; }
     scanFiles[side] = file;
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -183,44 +177,40 @@
     document.getElementById('btn-run').disabled = !(scanFiles.front && scanFiles.back);
   }
 
-  // ── Run CV centering via upload endpoint ───────────────────────────────────
+  // ── Run CV centering ───────────────────────────────────────────────────────
   async function runCV() {
     if (!scanFiles.front || !scanFiles.back) return;
-
     const btn = document.getElementById('btn-run');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running...';
-    setStatus('Running CV centering on front...', 'info');
     document.getElementById('cv-results').style.display = '';
 
     const BACKEND = (document.body.dataset.backendUrl || '').replace(/\/$/, '');
     const token = await firebase.auth().currentUser.getIdToken();
 
+    const uploadSide = async (side) => {
+      setStatus(`Running CV centering on ${side}...`, 'info');
+      const form = new FormData();
+      form.append('image', scanFiles[side]);
+      form.append('side', side);
+      const resp = await fetch(`${BACKEND}/centering-cv/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: form,
+      });
+      if (!resp.ok) {
+        let msg = `HTTP ${resp.status}`;
+        try { const j = await resp.json(); msg = j.error || msg; } catch (_) {}
+        throw new Error(`${side}: ${msg}`);
+      }
+      return resp.json();
+    };
+
     try {
-      const uploadSide = async (side) => {
-        const form = new FormData();
-        form.append('image', scanFiles[side]);
-        form.append('side', side);
-        const resp = await fetch(`${BACKEND}/centering-cv/upload`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
-          body: form,
-        });
-        if (!resp.ok) {
-          let msg = `HTTP ${resp.status}`;
-          try { const j = await resp.json(); msg = j.error || msg; } catch (_) {}
-          throw new Error(`${side}: ${msg}`);
-        }
-        return resp.json();
-      };
-
-      setStatus('Running CV centering on front...', 'info');
       const front = await uploadSide('front');
-      setStatus('Running CV centering on back...', 'info');
       const back = await uploadSide('back');
-
       await Promise.all([loadSide('front', front), loadSide('back', back)]);
-      setStatus('Done.', 'success');
+      setStatus('Done. Click a line handle to adjust, scroll to nudge, right-click to deselect.', 'success');
     } catch (e) {
       setStatus(`Failed: ${e.message}`, 'error');
     } finally {
@@ -229,10 +219,10 @@
     }
   }
 
-  // ── Canvas rendering ───────────────────────────────────────────────────────
+  // ── Per-side state ─────────────────────────────────────────────────────────
   const cvSides = {
-    front: { data: null, image: null, transform: null },
-    back:  { data: null, image: null, transform: null },
+    front: { data: null, image: null, transform: null, lines: null, handles: [], dragging: null, selectedHandle: null, isPanning: false, panStart: null },
+    back:  { data: null, image: null, transform: null, lines: null, handles: [], dragging: null, selectedHandle: null, isPanning: false, panStart: null },
   };
 
   function fitCanvas(canvas) {
@@ -247,6 +237,18 @@
     return { scale, tx: (canvas.width - imgW * scale) / 2, ty: (canvas.height - imgH * scale) / 2 };
   }
 
+  function canvasToImg(side, clientX, clientY) {
+    const canvas = document.getElementById('canvas-' + side);
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const t = cvSides[side].transform;
+    return {
+      x: ((clientX - rect.left) * dpr - t.tx) / t.scale,
+      y: ((clientY - rect.top) * dpr - t.ty) / t.scale,
+    };
+  }
+
+  // ── Drawing ────────────────────────────────────────────────────────────────
   function draw(side) {
     const state = cvSides[side];
     if (!state.data || !state.image) return;
@@ -298,24 +300,151 @@
       }
     }
 
-    if (showLines && data.lines) {
-      ctx.lineWidth = Math.max(1, 2 / scale);
-      for (const [, L] of Object.entries(data.lines)) {
+    // Draw adjustable lines + handles
+    if (showLines && state.lines) {
+      state.handles = [];
+      const sel = state.selectedHandle;
+
+      for (const [name, L] of Object.entries(state.lines)) {
         if (!L) continue;
-        ctx.strokeStyle = L.kind === 'card' ? '#00c800' : '#ffdc00';
+        const isSel = sel && sel.lineName === name;
+        const color = L.kind === 'card' ? '#00c800' : '#ffdc00';
+        ctx.strokeStyle = isSel ? '#ffffff' : color;
+        ctx.lineWidth = Math.max(1, (isSel ? 3 : 2) / scale);
         ctx.beginPath(); ctx.moveTo(L.x0, L.y0); ctx.lineTo(L.x1, L.y1); ctx.stroke();
+
+        // Handles at both endpoints
+        const r = Math.max(3, (sel && sel.lineName === name ? 8 : 6) / scale);
+        for (const pt of ['p0', 'p1']) {
+          const hx = pt === 'p0' ? L.x0 : L.x1;
+          const hy = pt === 'p0' ? L.y0 : L.y1;
+          const isThis = isSel && sel.pt === pt;
+          ctx.fillStyle = isThis ? '#ffffff' : color;
+          ctx.globalAlpha = isThis ? 1.0 : 0.7;
+          ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = 1.0;
+          ctx.strokeStyle = isThis ? '#00ffff' : '#000';
+          ctx.lineWidth = Math.max(0.5, (isThis ? 2 : 1) / scale);
+          ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.stroke();
+          state.handles.push({ lineName: name, pt, x: hx, y: hy, kind: L.kind });
+        }
       }
     }
   }
 
   function redrawAll() { draw('front'); draw('back'); }
 
+  // ── Hit test handles ───────────────────────────────────────────────────────
+  function hitTestHandle(side, imgPos) {
+    const state = cvSides[side];
+    const radius = 12 / state.transform.scale;
+    for (const h of state.handles) {
+      const dist = Math.sqrt((imgPos.x - h.x) ** 2 + (imgPos.y - h.y) ** 2);
+      if (dist < radius) return h;
+    }
+    return null;
+  }
+
+  // ── Recalculate measurements from adjusted lines ───────────────────────────
+  function lineXatY(L, y) {
+    if (!L) return null;
+    const dy = L.y1 - L.y0;
+    if (Math.abs(dy) < 0.001) return (L.x0 + L.x1) / 2;
+    return L.x0 + (L.x1 - L.x0) * (y - L.y0) / dy;
+  }
+
+  function lineYatX(L, x) {
+    if (!L) return null;
+    const dx = L.x1 - L.x0;
+    if (Math.abs(dx) < 0.001) return (L.y0 + L.y1) / 2;
+    return L.y0 + (L.y1 - L.y0) * (x - L.x0) / dx;
+  }
+
+  function recalcMeasurements(side) {
+    const state = cvSides[side];
+    if (!state.lines || !state.data) return;
+    const L = state.lines;
+    const imgH = state.data.image_size.h;
+    const imgW = state.data.image_size.w;
+
+    const meas = [];
+
+    // LR top: at y = 25% of image height
+    const yTop = imgH * 0.25;
+    const clT = lineXatY(L.card_left, yTop), crT = lineXatY(L.card_right, yTop);
+    const alT = lineXatY(L.art_left, yTop),  arT = lineXatY(L.art_right, yTop);
+    if (clT != null && crT != null && alT != null && arT != null) {
+      const left = Math.round(alT - clT), right = Math.round(crT - arT);
+      const total = left + right;
+      const ratio = total > 0 ? `${Math.round(Math.max(left,right)/total*100)}/${Math.round(Math.min(left,right)/total*100)}` : '—';
+      meas.push({ position: 'lr_top', left_px: left, right_px: right, ratio });
+    }
+
+    // LR bot: at y = 75%
+    const yBot = imgH * 0.75;
+    const clB = lineXatY(L.card_left, yBot), crB = lineXatY(L.card_right, yBot);
+    const alB = lineXatY(L.art_left, yBot),  arB = lineXatY(L.art_right, yBot);
+    if (clB != null && crB != null && alB != null && arB != null) {
+      const left = Math.round(alB - clB), right = Math.round(crB - arB);
+      const total = left + right;
+      const ratio = total > 0 ? `${Math.round(Math.max(left,right)/total*100)}/${Math.round(Math.min(left,right)/total*100)}` : '—';
+      meas.push({ position: 'lr_bot', left_px: left, right_px: right, ratio });
+    }
+
+    // TB left: at x = 25%
+    const xLeft = imgW * 0.25;
+    const ctL = lineYatX(L.card_top, xLeft), cbL = lineYatX(L.card_bot, xLeft);
+    const atL = lineYatX(L.art_top, xLeft),  abL = lineYatX(L.art_bot, xLeft);
+    if (ctL != null && cbL != null && atL != null && abL != null) {
+      const top = Math.round(atL - ctL), bot = Math.round(cbL - abL);
+      const total = top + bot;
+      const ratio = total > 0 ? `${Math.round(Math.max(top,bot)/total*100)}/${Math.round(Math.min(top,bot)/total*100)}` : '—';
+      meas.push({ position: 'tb_left', left_px: top, right_px: bot, ratio });
+    }
+
+    // TB right: at x = 75%
+    const xRight = imgW * 0.75;
+    const ctR = lineYatX(L.card_top, xRight), cbR = lineYatX(L.card_bot, xRight);
+    const atR = lineYatX(L.art_top, xRight),  abR = lineYatX(L.art_bot, xRight);
+    if (ctR != null && cbR != null && atR != null && abR != null) {
+      const top = Math.round(atR - ctR), bot = Math.round(cbR - abR);
+      const total = top + bot;
+      const ratio = total > 0 ? `${Math.round(Math.max(top,bot)/total*100)}/${Math.round(Math.min(top,bot)/total*100)}` : '—';
+      meas.push({ position: 'tb_right', left_px: top, right_px: bot, ratio });
+    }
+
+    renderMeasurementsFromArray(side, meas);
+  }
+
+  // ── Mouse interaction ──────────────────────────────────────────────────────
   function attachViewer(side) {
     const canvas = document.getElementById('canvas-' + side);
+    const state = cvSides[side];
+
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const state = cvSides[side];
       if (!state.transform) return;
+
+      // If a handle is selected, nudge it with scroll
+      if (state.selectedHandle && state.lines) {
+        const sel = state.selectedHandle;
+        const L = state.lines[sel.lineName];
+        if (L) {
+          const nudge = e.deltaY < 0 ? -1 : 1;
+          // Determine if this is more horizontal or vertical
+          const isHorizontal = Math.abs(L.y1 - L.y0) < Math.abs(L.x1 - L.x0);
+          if (sel.pt === 'p0') {
+            if (isHorizontal) L.y0 += nudge; else L.x0 += nudge;
+          } else {
+            if (isHorizontal) L.y1 += nudge; else L.x1 += nudge;
+          }
+          recalcMeasurements(side);
+          draw(side);
+        }
+        return;
+      }
+
+      // Otherwise zoom
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       const cx = (e.clientX - rect.left) * dpr;
@@ -330,26 +459,79 @@
       draw(side);
     }, { passive: false });
 
-    let dragging = false, lastX = 0, lastY = 0;
+    // Right-click deselects
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (state.selectedHandle) {
+        state.selectedHandle = null;
+        canvas.style.cursor = 'grab';
+        draw(side);
+      }
+    });
+
     canvas.addEventListener('mousedown', (e) => {
-      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      if (e.button === 2) return;
+      const pos = canvasToImg(side, e.clientX, e.clientY);
+      const hit = hitTestHandle(side, pos);
+
+      if (hit) {
+        if (state.selectedHandle && state.selectedHandle.lineName === hit.lineName && state.selectedHandle.pt === hit.pt) {
+          // Click same handle again → deselect
+          state.selectedHandle = null;
+          canvas.style.cursor = 'grab';
+        } else {
+          state.selectedHandle = hit;
+          state.dragging = hit;
+          canvas.style.cursor = 'crosshair';
+        }
+        draw(side);
+        return;
+      }
+
+      // Click elsewhere → deselect
+      if (state.selectedHandle) {
+        state.selectedHandle = null;
+        canvas.style.cursor = 'grab';
+        draw(side);
+      }
+
+      // Start panning
+      state.isPanning = true;
+      state.panStart = { x: e.clientX, y: e.clientY, tx: state.transform.tx, ty: state.transform.ty };
       canvas.style.cursor = 'grabbing';
     });
-    window.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const dpr = window.devicePixelRatio || 1;
-      const t = cvSides[side].transform;
-      if (!t) return;
-      t.tx += (e.clientX - lastX) * dpr;
-      t.ty += (e.clientY - lastY) * dpr;
-      lastX = e.clientX; lastY = e.clientY;
-      draw(side);
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (state.dragging && state.lines) {
+        const pos = canvasToImg(side, e.clientX, e.clientY);
+        const L = state.lines[state.dragging.lineName];
+        if (L) {
+          if (state.dragging.pt === 'p0') { L.x0 = Math.round(pos.x); L.y0 = Math.round(pos.y); }
+          else { L.x1 = Math.round(pos.x); L.y1 = Math.round(pos.y); }
+          recalcMeasurements(side);
+          draw(side);
+        }
+        return;
+      }
+      if (state.isPanning && state.panStart) {
+        const dpr = window.devicePixelRatio || 1;
+        state.transform.tx = state.panStart.tx + (e.clientX - state.panStart.x) * dpr;
+        state.transform.ty = state.panStart.ty + (e.clientY - state.panStart.y) * dpr;
+        draw(side);
+      }
     });
-    window.addEventListener('mouseup', () => {
-      dragging = false;
-      document.getElementById('canvas-front').style.cursor = 'grab';
-      document.getElementById('canvas-back').style.cursor = 'grab';
+
+    canvas.addEventListener('mouseup', () => {
+      if (state.dragging) {
+        state.dragging = null;
+        if (!state.selectedHandle) canvas.style.cursor = 'grab';
+      }
+      if (state.isPanning) {
+        state.isPanning = false;
+        canvas.style.cursor = 'grab';
+      }
     });
+
     canvas.addEventListener('dblclick', () => resetView(side));
   }
 
@@ -362,10 +544,9 @@
     draw(side);
   }
 
-  function renderMeasurements(side, data) {
+  // ── Measurements rendering ─────────────────────────────────────────────────
+  function renderMeasurementsFromArray(side, meas) {
     const table = document.getElementById(`cv-${side}-table`);
-    const info = document.getElementById(`cv-${side}-info`);
-    const meas = data.measurements || [];
     const labels = { lr_top:'LR top', lr_bot:'LR bot', tb_left:'TB left', tb_right:'TB right' };
 
     if (meas.length) {
@@ -382,22 +563,40 @@
           <td class="text-end"><span class="badge bg-secondary">${m.ratio}</span></td>
         </tr>`).join('') + '</tbody>';
     } else {
-      table.innerHTML = `<tr><td class="text-danger">${data.error || 'No measurements'}</td></tr>`;
+      table.innerHTML = `<tr><td class="text-danger">No measurements</td></tr>`;
     }
+  }
 
+  function renderMeasurements(side, data) {
+    renderMeasurementsFromArray(side, data.measurements || []);
+    const info = document.getElementById(`cv-${side}-info`);
     const dets = data.detections || [];
     const lowConf = dets.filter(d => Math.min(d.card_score ?? 0, d.art_score ?? 0) < 0.30).length;
     info.textContent = `${dets.length} crops \u00b7 ${lowConf} low-conf`;
   }
 
+  // ── Load side data ─────────────────────────────────────────────────────────
   async function loadSide(side, data) {
-    cvSides[side].data = data;
+    const state = cvSides[side];
+    state.data = data;
+    state.selectedHandle = null;
+    state.dragging = null;
+
+    // Deep-copy lines so we can mutate them
+    if (data.lines) {
+      state.lines = {};
+      for (const [name, L] of Object.entries(data.lines)) {
+        if (L) state.lines[name] = { ...L };
+      }
+    }
+
     const img = new Image();
-    img.onload = () => { cvSides[side].image = img; resetView(side); };
+    img.onload = () => { state.image = img; resetView(side); };
     img.src = 'data:image/png;base64,' + data.base_png_b64;
     renderMeasurements(side, data);
   }
 
+  // ── Init ───────────────────────────────────────────────────────────────────
   window.addEventListener('load', () => {
     attachViewer('front');
     attachViewer('back');
