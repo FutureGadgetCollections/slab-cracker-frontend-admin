@@ -113,6 +113,25 @@
     <div class="tab-pane fade show active" id="tab-front">
       <div class="card shadow-sm border-0 rounded-top-0">
         <div class="card-body p-2">
+          <div class="d-flex gap-1 mb-1">
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('front','tl')" title="Top-left corner">
+                <i class="bi bi-arrow-up-left"></i> TL
+              </button>
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('front','tr')" title="Top-right corner">
+                TR <i class="bi bi-arrow-up-right"></i>
+              </button>
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('front','bl')" title="Bottom-left corner">
+                <i class="bi bi-arrow-down-left"></i> BL
+              </button>
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('front','br')" title="Bottom-right corner">
+                BR <i class="bi bi-arrow-down-right"></i>
+              </button>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="resetView('front')" title="Fit whole image">
+              <i class="bi bi-arrows-fullscreen"></i> Fit
+            </button>
+          </div>
           <canvas id="canvas-front"
                   style="width:100%; height:80vh; border:1px solid #ddd; border-radius:4px;
                          cursor:grab; background:#222; display:block"></canvas>
@@ -123,6 +142,25 @@
     <div class="tab-pane fade" id="tab-back">
       <div class="card shadow-sm border-0 rounded-top-0">
         <div class="card-body p-2">
+          <div class="d-flex gap-1 mb-1">
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('back','tl')" title="Top-left corner">
+                <i class="bi bi-arrow-up-left"></i> TL
+              </button>
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('back','tr')" title="Top-right corner">
+                TR <i class="bi bi-arrow-up-right"></i>
+              </button>
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('back','bl')" title="Bottom-left corner">
+                <i class="bi bi-arrow-down-left"></i> BL
+              </button>
+              <button class="btn btn-outline-secondary" onclick="zoomCorner('back','br')" title="Bottom-right corner">
+                BR <i class="bi bi-arrow-down-right"></i>
+              </button>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="resetView('back')" title="Fit whole image">
+              <i class="bi bi-arrows-fullscreen"></i> Fit
+            </button>
+          </div>
           <canvas id="canvas-back"
                   style="width:100%; height:80vh; border:1px solid #ddd; border-radius:4px;
                          cursor:grab; background:#222; display:block"></canvas>
@@ -566,6 +604,18 @@
     });
 
     canvas.addEventListener('dblclick', () => resetView(side));
+
+    // Keyboard: 1-4 for corners, 0/f for fit
+    canvas.addEventListener('keydown', (e) => {
+      if (!state.data) return;
+      const key = e.key;
+      if (key === '1') { zoomCorner(side, 'tl'); e.preventDefault(); }
+      else if (key === '2') { zoomCorner(side, 'tr'); e.preventDefault(); }
+      else if (key === '3') { zoomCorner(side, 'bl'); e.preventDefault(); }
+      else if (key === '4') { zoomCorner(side, 'br'); e.preventDefault(); }
+      else if (key === '0' || key === 'f') { resetView(side); e.preventDefault(); }
+    });
+    canvas.setAttribute('tabindex', '0');
   }
 
   function resetView(side) {
@@ -574,6 +624,29 @@
     const canvas = document.getElementById('canvas-' + side);
     fitCanvas(canvas);
     state.transform = computeInitialTransform(canvas, state.data.image_size.w, state.data.image_size.h);
+    draw(side);
+  }
+
+  // Zoom into a corner of the image. Shows ~30% of the image centered on the corner.
+  function zoomCorner(side, corner) {
+    const state = cvSides[side];
+    if (!state.data || !state.image) return;
+    const canvas = document.getElementById('canvas-' + side);
+    fitCanvas(canvas);
+    const imgW = state.data.image_size.w, imgH = state.data.image_size.h;
+
+    // Zoom so ~30% of the image fills the canvas
+    const scale = Math.min(canvas.width / (imgW * 0.3), canvas.height / (imgH * 0.3));
+
+    // Center point in image coords for each corner
+    const cx = corner.includes('l') ? imgW * 0.15 : imgW * 0.85;
+    const cy = corner.includes('t') ? imgH * 0.15 : imgH * 0.85;
+
+    state.transform = {
+      scale,
+      tx: canvas.width / 2 - cx * scale,
+      ty: canvas.height / 2 - cy * scale,
+    };
     draw(side);
   }
 
