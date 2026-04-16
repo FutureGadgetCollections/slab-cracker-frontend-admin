@@ -93,34 +93,38 @@
     </div>
   </div>
 
-  <div class="row g-3">
-    <div class="col-md-6">
-      <div class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0 py-2 d-flex justify-content-between align-items-center">
-          <span class="fw-semibold small">Front <span class="text-muted ms-1" id="cv-front-info"></span></span>
-          <button class="btn btn-link btn-sm p-0 text-muted" onclick="resetView('front')" title="Reset zoom/pan">
-            <i class="bi bi-arrow-counterclockwise"></i>
-          </button>
-        </div>
+  <!-- Tabs to switch front/back — full width canvas -->
+  <ul class="nav nav-tabs mb-0" role="tablist">
+    <li class="nav-item">
+      <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-front" type="button"
+              onclick="setTimeout(()=>resetView('front'),50)">
+        Front <span class="text-muted ms-1" id="cv-front-info"></span>
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-back" type="button"
+              onclick="setTimeout(()=>resetView('back'),50)">
+        Back <span class="text-muted ms-1" id="cv-back-info"></span>
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="tab-front">
+      <div class="card shadow-sm border-0 rounded-top-0">
         <div class="card-body p-2">
           <canvas id="canvas-front"
-                  style="width:100%; height:60vh; border:1px solid #ddd; border-radius:4px;
+                  style="width:100%; height:80vh; border:1px solid #ddd; border-radius:4px;
                          cursor:grab; background:#222; display:block"></canvas>
           <table class="table table-sm small mb-0 mt-2" id="cv-front-table"></table>
         </div>
       </div>
     </div>
-    <div class="col-md-6">
-      <div class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0 py-2 d-flex justify-content-between align-items-center">
-          <span class="fw-semibold small">Back <span class="text-muted ms-1" id="cv-back-info"></span></span>
-          <button class="btn btn-link btn-sm p-0 text-muted" onclick="resetView('back')" title="Reset zoom/pan">
-            <i class="bi bi-arrow-counterclockwise"></i>
-          </button>
-        </div>
+    <div class="tab-pane fade" id="tab-back">
+      <div class="card shadow-sm border-0 rounded-top-0">
         <div class="card-body p-2">
           <canvas id="canvas-back"
-                  style="width:100%; height:60vh; border:1px solid #ddd; border-radius:4px;
+                  style="width:100%; height:80vh; border:1px solid #ddd; border-radius:4px;
                          cursor:grab; background:#222; display:block"></canvas>
           <table class="table table-sm small mb-0 mt-2" id="cv-back-table"></table>
         </div>
@@ -220,10 +224,59 @@
   }
 
   // ── Per-side state ─────────────────────────────────────────────────────────
+  // Lines are stored with two control points at 25% and 75% along the line's
+  // primary axis. Vertical lines (left/right): ctrl25/ctrl75 are x values at
+  // y=25% and y=75%. Horizontal lines (top/bot): ctrl25/ctrl75 are y values
+  // at x=25% and x=75%. The line is extrapolated edge-to-edge from these.
   const cvSides = {
     front: { data: null, image: null, transform: null, lines: null, handles: [], dragging: null, selectedHandle: null, isPanning: false, panStart: null },
     back:  { data: null, image: null, transform: null, lines: null, handles: [], dragging: null, selectedHandle: null, isPanning: false, panStart: null },
   };
+
+  // Vertical lines span top-to-bottom; horizontal lines span left-to-right
+  const VERT_LINES = new Set(['card_left','card_right','art_left','art_right']);
+
+  function isVertLine(name) { return VERT_LINES.has(name); }
+
+  // Convert raw CV line (x0,y0,x1,y1) to our control-point model
+  function lineToControls(name, L, imgW, imgH) {
+    if (!L) return null;
+    if (isVertLine(name)) {
+      // Vertical: interpolate x at y=25% and y=75%
+      const dy = L.y1 - L.y0 || 1;
+      const y25 = imgH * 0.25, y75 = imgH * 0.75;
+      return {
+        kind: L.kind,
+        ctrl25: L.x0 + (L.x1 - L.x0) * (y25 - L.y0) / dy,
+        ctrl75: L.x0 + (L.x1 - L.x0) * (y75 - L.y0) / dy,
+      };
+    } else {
+      // Horizontal: interpolate y at x=25% and x=75%
+      const dx = L.x1 - L.x0 || 1;
+      const x25 = imgW * 0.25, x75 = imgW * 0.75;
+      return {
+        kind: L.kind,
+        ctrl25: L.y0 + (L.y1 - L.y0) * (x25 - L.x0) / dx,
+        ctrl75: L.y0 + (L.y1 - L.y0) * (x75 - L.x0) / dx,
+      };
+    }
+  }
+
+  // Get value at arbitrary position along the line's primary axis via linear interpolation
+  function lineValAt(ctrl, frac) {
+    // frac: 0..1 along primary axis. ctrl25 is at 0.25, ctrl75 is at 0.75
+    return ctrl.ctrl25 + (ctrl.ctrl75 - ctrl.ctrl25) * (frac - 0.25) / 0.5;
+  }
+
+  // Get the two edge-to-edge endpoints for drawing
+  function controlsToEndpoints(name, ctrl, imgW, imgH) {
+    const v0 = lineValAt(ctrl, 0), v1 = lineValAt(ctrl, 1);
+    if (isVertLine(name)) {
+      return { x0: v0, y0: 0, x1: v1, y1: imgH };
+    } else {
+      return { x0: 0, y0: v0, x1: imgW, y1: v1 };
+    }
+  }
 
   function fitCanvas(canvas) {
     const dpr = window.devicePixelRatio || 1;
@@ -256,6 +309,7 @@
     const ctx = canvas.getContext('2d');
     const { scale, tx, ty } = state.transform;
     const data = state.data;
+    const imgW = data.image_size.w, imgH = data.image_size.h;
 
     const showCrops  = document.getElementById('show-crops').checked;
     const showPoints = document.getElementById('show-points').checked;
@@ -300,33 +354,39 @@
       }
     }
 
-    // Draw adjustable lines + handles
+    // Draw adjustable lines (edge-to-edge) with handles at 25% and 75%
     if (showLines && state.lines) {
       state.handles = [];
       const sel = state.selectedHandle;
 
-      for (const [name, L] of Object.entries(state.lines)) {
-        if (!L) continue;
+      for (const [name, ctrl] of Object.entries(state.lines)) {
+        if (!ctrl) continue;
         const isSel = sel && sel.lineName === name;
-        const color = L.kind === 'card' ? '#00c800' : '#ffdc00';
+        const color = ctrl.kind === 'card' ? '#00c800' : '#ffdc00';
+        const ep = controlsToEndpoints(name, ctrl, imgW, imgH);
+
+        // Draw the full line
         ctx.strokeStyle = isSel ? '#ffffff' : color;
         ctx.lineWidth = Math.max(1, (isSel ? 3 : 2) / scale);
-        ctx.beginPath(); ctx.moveTo(L.x0, L.y0); ctx.lineTo(L.x1, L.y1); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ep.x0, ep.y0); ctx.lineTo(ep.x1, ep.y1); ctx.stroke();
 
-        // Handles at both endpoints
-        const r = Math.max(3, (sel && sel.lineName === name ? 8 : 6) / scale);
-        for (const pt of ['p0', 'p1']) {
-          const hx = pt === 'p0' ? L.x0 : L.x1;
-          const hy = pt === 'p0' ? L.y0 : L.y1;
-          const isThis = isSel && sel.pt === pt;
+        // Handles at 25% and 75%
+        const vert = isVertLine(name);
+        for (const pct of ['ctrl25', 'ctrl75']) {
+          const hx = vert ? ctrl[pct] : (pct === 'ctrl25' ? imgW * 0.25 : imgW * 0.75);
+          const hy = vert ? (pct === 'ctrl25' ? imgH * 0.25 : imgH * 0.75) : ctrl[pct];
+          const isThis = isSel && sel.pct === pct;
+          const r = Math.max(3, (isThis ? 9 : 7) / scale);
+
           ctx.fillStyle = isThis ? '#ffffff' : color;
-          ctx.globalAlpha = isThis ? 1.0 : 0.7;
+          ctx.globalAlpha = isThis ? 1.0 : 0.8;
           ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.fill();
           ctx.globalAlpha = 1.0;
           ctx.strokeStyle = isThis ? '#00ffff' : '#000';
-          ctx.lineWidth = Math.max(0.5, (isThis ? 2 : 1) / scale);
+          ctx.lineWidth = Math.max(0.5, (isThis ? 2.5 : 1) / scale);
           ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.stroke();
-          state.handles.push({ lineName: name, pt, x: hx, y: hy, kind: L.kind });
+
+          state.handles.push({ lineName: name, pct, x: hx, y: hy, kind: ctrl.kind });
         }
       }
     }
@@ -337,7 +397,7 @@
   // ── Hit test handles ───────────────────────────────────────────────────────
   function hitTestHandle(side, imgPos) {
     const state = cvSides[side];
-    const radius = 12 / state.transform.scale;
+    const radius = 14 / state.transform.scale;
     for (const h of state.handles) {
       const dist = Math.sqrt((imgPos.x - h.x) ** 2 + (imgPos.y - h.y) ** 2);
       if (dist < radius) return h;
@@ -346,70 +406,51 @@
   }
 
   // ── Recalculate measurements from adjusted lines ───────────────────────────
-  function lineXatY(L, y) {
-    if (!L) return null;
-    const dy = L.y1 - L.y0;
-    if (Math.abs(dy) < 0.001) return (L.x0 + L.x1) / 2;
-    return L.x0 + (L.x1 - L.x0) * (y - L.y0) / dy;
-  }
-
-  function lineYatX(L, x) {
-    if (!L) return null;
-    const dx = L.x1 - L.x0;
-    if (Math.abs(dx) < 0.001) return (L.y0 + L.y1) / 2;
-    return L.y0 + (L.y1 - L.y0) * (x - L.x0) / dx;
-  }
-
   function recalcMeasurements(side) {
     const state = cvSides[side];
     if (!state.lines || !state.data) return;
     const L = state.lines;
-    const imgH = state.data.image_size.h;
-    const imgW = state.data.image_size.w;
+    const imgH = state.data.image_size.h, imgW = state.data.image_size.w;
 
     const meas = [];
 
-    // LR top: at y = 25% of image height
-    const yTop = imgH * 0.25;
-    const clT = lineXatY(L.card_left, yTop), crT = lineXatY(L.card_right, yTop);
-    const alT = lineXatY(L.art_left, yTop),  arT = lineXatY(L.art_right, yTop);
+    // LR top: at y = 25% → frac = 0.25
+    const clT = lineValAt(L.card_left, 0.25), crT = lineValAt(L.card_right, 0.25);
+    const alT = lineValAt(L.art_left, 0.25),  arT = lineValAt(L.art_right, 0.25);
     if (clT != null && crT != null && alT != null && arT != null) {
       const left = Math.round(alT - clT), right = Math.round(crT - arT);
       const total = left + right;
-      const ratio = total > 0 ? `${Math.round(Math.max(left,right)/total*100)}/${Math.round(Math.min(left,right)/total*100)}` : '—';
+      const ratio = total > 0 ? `${Math.round(Math.max(left,right)/total*100)}/${Math.round(Math.min(left,right)/total*100)}` : '\u2014';
       meas.push({ position: 'lr_top', left_px: left, right_px: right, ratio });
     }
 
     // LR bot: at y = 75%
-    const yBot = imgH * 0.75;
-    const clB = lineXatY(L.card_left, yBot), crB = lineXatY(L.card_right, yBot);
-    const alB = lineXatY(L.art_left, yBot),  arB = lineXatY(L.art_right, yBot);
+    const clB = lineValAt(L.card_left, 0.75), crB = lineValAt(L.card_right, 0.75);
+    const alB = lineValAt(L.art_left, 0.75),  arB = lineValAt(L.art_right, 0.75);
     if (clB != null && crB != null && alB != null && arB != null) {
       const left = Math.round(alB - clB), right = Math.round(crB - arB);
       const total = left + right;
-      const ratio = total > 0 ? `${Math.round(Math.max(left,right)/total*100)}/${Math.round(Math.min(left,right)/total*100)}` : '—';
+      const ratio = total > 0 ? `${Math.round(Math.max(left,right)/total*100)}/${Math.round(Math.min(left,right)/total*100)}` : '\u2014';
       meas.push({ position: 'lr_bot', left_px: left, right_px: right, ratio });
     }
 
     // TB left: at x = 25%
-    const xLeft = imgW * 0.25;
-    const ctL = lineYatX(L.card_top, xLeft), cbL = lineYatX(L.card_bot, xLeft);
-    const atL = lineYatX(L.art_top, xLeft),  abL = lineYatX(L.art_bot, xLeft);
+    const ctL = lineValAt(L.card_top, 0.25), cbL = lineValAt(L.card_bot, 0.25);
+    const atL = lineValAt(L.art_top, 0.25),  abL = lineValAt(L.art_bot, 0.25);
     if (ctL != null && cbL != null && atL != null && abL != null) {
       const top = Math.round(atL - ctL), bot = Math.round(cbL - abL);
       const total = top + bot;
-      const ratio = total > 0 ? `${Math.round(Math.max(top,bot)/total*100)}/${Math.round(Math.min(top,bot)/total*100)}` : '—';
+      const ratio = total > 0 ? `${Math.round(Math.max(top,bot)/total*100)}/${Math.round(Math.min(top,bot)/total*100)}` : '\u2014';
       meas.push({ position: 'tb_left', left_px: top, right_px: bot, ratio });
     }
 
     // TB right: at x = 75%
-    const xRight = imgW * 0.75;
-    const ctR = lineYatX(L.card_top, xRight), cbR = lineYatX(L.card_bot, xRight);
-    const atR = lineYatX(L.art_top, xRight),  abR = lineYatX(L.art_bot, xRight);
+    const ctR = lineValAt(L.card_top, 0.75), cbR = lineValAt(L.card_bot, 0.75);
+    const atR = lineValAt(L.art_top, 0.75),  abR = lineValAt(L.art_bot, 0.75);
     if (ctR != null && cbR != null && atR != null && abR != null) {
       const top = Math.round(atR - ctR), bot = Math.round(cbR - abR);
       const total = top + bot;
-      const ratio = total > 0 ? `${Math.round(Math.max(top,bot)/total*100)}/${Math.round(Math.min(top,bot)/total*100)}` : '—';
+      const ratio = total > 0 ? `${Math.round(Math.max(top,bot)/total*100)}/${Math.round(Math.min(top,bot)/total*100)}` : '\u2014';
       meas.push({ position: 'tb_right', left_px: top, right_px: bot, ratio });
     }
 
@@ -428,16 +469,10 @@
       // If a handle is selected, nudge it with scroll
       if (state.selectedHandle && state.lines) {
         const sel = state.selectedHandle;
-        const L = state.lines[sel.lineName];
-        if (L) {
+        const ctrl = state.lines[sel.lineName];
+        if (ctrl) {
           const nudge = e.deltaY < 0 ? -1 : 1;
-          // Determine if this is more horizontal or vertical
-          const isHorizontal = Math.abs(L.y1 - L.y0) < Math.abs(L.x1 - L.x0);
-          if (sel.pt === 'p0') {
-            if (isHorizontal) L.y0 += nudge; else L.x0 += nudge;
-          } else {
-            if (isHorizontal) L.y1 += nudge; else L.x1 += nudge;
-          }
+          ctrl[sel.pct] += nudge;
           recalcMeasurements(side);
           draw(side);
         }
@@ -475,27 +510,24 @@
       const hit = hitTestHandle(side, pos);
 
       if (hit) {
-        if (state.selectedHandle && state.selectedHandle.lineName === hit.lineName && state.selectedHandle.pt === hit.pt) {
-          // Click same handle again → deselect
+        if (state.selectedHandle && state.selectedHandle.lineName === hit.lineName && state.selectedHandle.pct === hit.pct) {
           state.selectedHandle = null;
           canvas.style.cursor = 'grab';
         } else {
           state.selectedHandle = hit;
           state.dragging = hit;
-          canvas.style.cursor = 'crosshair';
+          canvas.style.cursor = isVertLine(hit.lineName) ? 'ew-resize' : 'ns-resize';
         }
         draw(side);
         return;
       }
 
-      // Click elsewhere → deselect
       if (state.selectedHandle) {
         state.selectedHandle = null;
         canvas.style.cursor = 'grab';
         draw(side);
       }
 
-      // Start panning
       state.isPanning = true;
       state.panStart = { x: e.clientX, y: e.clientY, tx: state.transform.tx, ty: state.transform.ty };
       canvas.style.cursor = 'grabbing';
@@ -504,10 +536,10 @@
     canvas.addEventListener('mousemove', (e) => {
       if (state.dragging && state.lines) {
         const pos = canvasToImg(side, e.clientX, e.clientY);
-        const L = state.lines[state.dragging.lineName];
-        if (L) {
-          if (state.dragging.pt === 'p0') { L.x0 = Math.round(pos.x); L.y0 = Math.round(pos.y); }
-          else { L.x1 = Math.round(pos.x); L.y1 = Math.round(pos.y); }
+        const ctrl = state.lines[state.dragging.lineName];
+        if (ctrl) {
+          // Drag moves the control point perpendicular to the line's primary axis
+          ctrl[state.dragging.pct] = Math.round(isVertLine(state.dragging.lineName) ? pos.x : pos.y);
           recalcMeasurements(side);
           draw(side);
         }
@@ -525,6 +557,7 @@
       if (state.dragging) {
         state.dragging = null;
         if (!state.selectedHandle) canvas.style.cursor = 'grab';
+        else canvas.style.cursor = isVertLine(state.selectedHandle.lineName) ? 'ew-resize' : 'ns-resize';
       }
       if (state.isPanning) {
         state.isPanning = false;
@@ -582,11 +615,13 @@
     state.selectedHandle = null;
     state.dragging = null;
 
-    // Deep-copy lines so we can mutate them
-    if (data.lines) {
+    // Convert raw CV lines to control-point model (25%/75% handles)
+    if (data.lines && data.image_size) {
+      const imgW = data.image_size.w, imgH = data.image_size.h;
       state.lines = {};
       for (const [name, L] of Object.entries(data.lines)) {
-        if (L) state.lines[name] = { ...L };
+        const ctrl = lineToControls(name, L, imgW, imgH);
+        if (ctrl) state.lines[name] = ctrl;
       }
     }
 
