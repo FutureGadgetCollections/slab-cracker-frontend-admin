@@ -654,3 +654,123 @@ function runCenteringCV(source, cropMode) {
     base_png_b64: basePngB64,
   };
 }
+
+// ── Perspective correction ───────────────────────────────────────────────────
+
+/**
+ * Solve the 3x3 homography matrix H that maps 4 source points to 4 dest points.
+ * src/dst: arrays of 4 {x,y} objects. Returns a 9-element array [h0..h8] where
+ * H = [[h0,h1,h2],[h3,h4,h5],[h6,h7,1]].
+ */
+function solveHomography(src, dst) {
+  // Build the 8x8 system Ah = b
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const sx = src[i].x, sy = src[i].y, dx = dst[i].x, dy = dst[i].y;
+    A.push([sx, sy, 1, 0, 0, 0, -dx*sx, -dx*sy]);
+    b.push(dx);
+    A.push([0, 0, 0, sx, sy, 1, -dy*sx, -dy*sy]);
+    b.push(dy);
+  }
+  // Gaussian elimination
+  const n = 8;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < n; col++) {
+    let maxR = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[maxR][col])) maxR = r;
+    [M[col], M[maxR]] = [M[maxR], M[col]];
+    const pivot = M[col][col];
+    if (Math.abs(pivot) < 1e-12) continue;
+    for (let j = col; j <= n; j++) M[col][j] /= pivot;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col];
+      for (let j = col; j <= n; j++) M[r][j] -= f * M[col][j];
+    }
+  }
+  const h = M.map(row => row[n]);
+  return [...h, 1]; // h0..h7, h8=1
+}
+
+/**
+ * Apply perspective warp: given a source image (as HTMLImageElement or Canvas),
+ * 4 source corner points, and output dimensions, produce a new Canvas with the
+ * warped result.
+ *
+ * @param {HTMLImageElement|HTMLCanvasElement} source
+ * @param {Array<{x:number,y:number}>} srcCorners - [TL, TR, BR, BL] in source image coords
+ * @param {number} dstW - output width
+ * @param {number} dstH - output height
+ * @returns {HTMLCanvasElement}
+ */
+function perspectiveWarp(source, srcCorners, dstW, dstH) {
+  // Source canvas for pixel reading
+  const srcCanvas = document.createElement('canvas');
+  const sw = source.naturalWidth || source.width;
+  const sh = source.naturalHeight || source.height;
+  srcCanvas.width = sw; srcCanvas.height = sh;
+  const srcCtx = srcCanvas.getContext('2d');
+  srcCtx.drawImage(source, 0, 0);
+  const srcData = srcCtx.getImageData(0, 0, sw, sh);
+  const srcPx = srcData.data;
+
+  // Destination corners: rectangle
+  const dstCorners = [
+    { x: 0, y: 0 },        // TL
+    { x: dstW, y: 0 },     // TR
+    { x: dstW, y: dstH },  // BR
+    { x: 0, y: dstH },     // BL
+  ];
+
+  // Inverse homography: maps dst→src so we can sample source for each dest pixel
+  const H = solveHomography(dstCorners, srcCorners);
+
+  const dstCanvas = document.createElement('canvas');
+  dstCanvas.width = dstW; dstCanvas.height = dstH;
+  const dstCtx = dstCanvas.getContext('2d');
+  const dstData = dstCtx.createImageData(dstW, dstH);
+  const dstPx = dstData.data;
+
+  for (let dy = 0; dy < dstH; dy++) {
+    for (let dx = 0; dx < dstW; dx++) {
+      // Map dest pixel to source via H
+      const w = H[6] * dx + H[7] * dy + H[8];
+      const sx = (H[0] * dx + H[1] * dy + H[2]) / w;
+      const sy = (H[3] * dx + H[4] * dy + H[5]) / w;
+
+      // Bilinear interpolation
+      const x0 = Math.floor(sx), y0 = Math.floor(sy);
+      const x1 = x0 + 1, y1 = y0 + 1;
+      if (x0 < 0 || y0 < 0 || x1 >= sw || y1 >= sh) continue;
+
+      const fx = sx - x0, fy = sy - y0;
+      const i00 = (y0 * sw + x0) * 4;
+      const i10 = (y0 * sw + x1) * 4;
+      const i01 = (y1 * sw + x0) * 4;
+      const i11 = (y1 * sw + x1) * 4;
+      const di = (dy * dstW + dx) * 4;
+
+      for (let c = 0; c < 4; c++) {
+        dstPx[di + c] = Math.round(
+          srcPx[i00+c]*(1-fx)*(1-fy) + srcPx[i10+c]*fx*(1-fy) +
+          srcPx[i01+c]*(1-fx)*fy     + srcPx[i11+c]*fx*fy
+        );
+      }
+    }
+  }
+  dstCtx.putImageData(dstData, 0, 0);
+  return dstCanvas;
+}
+
+/**
+ * Estimate output dimensions for perspective warp from 4 source corners.
+ * Uses average of opposite edge lengths.
+ */
+function estimateWarpDimensions(corners) {
+  const dist = (a, b) => Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2);
+  const wTop = dist(corners[0], corners[1]);
+  const wBot = dist(corners[3], corners[2]);
+  const hLeft = dist(corners[0], corners[3]);
+  const hRight = dist(corners[1], corners[2]);
+  return { w: Math.round((wTop + wBot) / 2), h: Math.round((hLeft + hRight) / 2) };
+}

@@ -155,6 +155,16 @@
             <button class="btn btn-outline-secondary btn-sm" onclick="resetView('front')" title="Fit whole image">
               <i class="bi bi-arrows-fullscreen"></i> Fit
             </button>
+            <span class="border-start mx-1"></span>
+            <button class="btn btn-outline-warning btn-sm" id="btn-straighten-front" onclick="toggleStraighten('front')" title="Mark card corners to correct perspective">
+              <i class="bi bi-bounding-box me-1"></i>Straighten
+            </button>
+            <button class="btn btn-warning btn-sm" id="btn-apply-straighten-front" onclick="applyStraighten('front')" style="display:none">
+              <i class="bi bi-check-lg me-1"></i>Apply & Re-run
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-cancel-straighten-front" onclick="cancelStraighten('front')" style="display:none">
+              Cancel
+            </button>
           </div>
           <canvas id="canvas-front"
                   style="width:100%; height:80vh; border:1px solid #ddd; border-radius:4px;
@@ -183,6 +193,16 @@
             </div>
             <button class="btn btn-outline-secondary btn-sm" onclick="resetView('back')" title="Fit whole image">
               <i class="bi bi-arrows-fullscreen"></i> Fit
+            </button>
+            <span class="border-start mx-1"></span>
+            <button class="btn btn-outline-warning btn-sm" id="btn-straighten-back" onclick="toggleStraighten('back')" title="Mark card corners to correct perspective">
+              <i class="bi bi-bounding-box me-1"></i>Straighten
+            </button>
+            <button class="btn btn-warning btn-sm" id="btn-apply-straighten-back" onclick="applyStraighten('back')" style="display:none">
+              <i class="bi bi-check-lg me-1"></i>Apply & Re-run
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-cancel-straighten-back" onclick="cancelStraighten('back')" style="display:none">
+              Cancel
             </button>
           </div>
           <canvas id="canvas-back"
@@ -473,6 +493,13 @@
 
   function redrawAll() { draw('front'); draw('back'); }
 
+  // Hook: after main draw, overlay straighten corners if active
+  const _origDraw = draw;
+  draw = function(side) {
+    _origDraw(side);
+    drawStraightenOverlay(side);
+  };
+
   // ── Hit test handles ───────────────────────────────────────────────────────
   function hitTestHandle(side, imgPos) {
     const state = cvSides[side];
@@ -596,9 +623,23 @@
     canvas.addEventListener('mousedown', (e) => {
       if (e.button === 2) return;
       const pos = canvasToImg(side, e.clientX, e.clientY);
-      const hit = hitTestHandle(side, pos);
 
-      if (hit) {
+      // Straighten mode: check corner handles first
+      const ss = straightenState[side];
+      if (ss) {
+        const cornerIdx = hitTestStraightenCorner(side, pos);
+        if (cornerIdx >= 0) {
+          ss.dragging = cornerIdx;
+          canvas.style.cursor = 'crosshair';
+          draw(side);
+          return;
+        }
+        // Fall through to panning if not on a corner
+      }
+
+      // Normal line handle mode
+      const hit = hitTestHandle(side, pos);
+      if (hit && !ss) {
         if (state.selectedHandle && state.selectedHandle.lineName === hit.lineName && state.selectedHandle.pt === hit.pt) {
           state.selectedHandle = null;
           canvas.style.cursor = 'grab';
@@ -623,6 +664,16 @@
     });
 
     canvas.addEventListener('mousemove', (e) => {
+      // Straighten corner dragging
+      const ss = straightenState[side];
+      if (ss && ss.dragging != null) {
+        const pos = canvasToImg(side, e.clientX, e.clientY);
+        ss.corners[ss.dragging] = { x: Math.round(pos.x), y: Math.round(pos.y) };
+        draw(side);
+        return;
+      }
+
+      // Normal line handle dragging
       if (state.dragging && state.lines) {
         const pos = canvasToImg(side, e.clientX, e.clientY);
         const ctrl = state.lines[state.dragging.lineName];
@@ -643,6 +694,14 @@
     });
 
     canvas.addEventListener('mouseup', () => {
+      // Straighten corner release
+      const ss = straightenState[side];
+      if (ss && ss.dragging != null) {
+        ss.dragging = null;
+        canvas.style.cursor = 'grab';
+        return;
+      }
+
       if (state.dragging) {
         state.dragging = null;
         if (!state.selectedHandle) canvas.style.cursor = 'grab';
@@ -752,6 +811,149 @@
       }).join('');
     }
     document.getElementById('ratio-summary').style.display = '';
+  }
+
+  // ── Perspective straighten mode ──────────────────────────────────────────────
+  // When active, 4 corner handles (TL, TR, BR, BL) appear on the raw image.
+  // The user drags them to the card corners, then clicks "Apply" to warp + re-run CV.
+  const straightenState = { front: null, back: null }; // null = inactive, or { corners, dragging, rawImage }
+
+  function toggleStraighten(side) {
+    if (straightenState[side]) { cancelStraighten(side); return; }
+
+    const state = cvSides[side];
+    if (!state.data || !state.image) return;
+    const { w, h } = state.data.image_size;
+
+    // Initialize corners at ~5% inset from image edges (card-like rectangle)
+    straightenState[side] = {
+      corners: [
+        { x: w * 0.05, y: h * 0.02 },  // TL
+        { x: w * 0.95, y: h * 0.02 },  // TR
+        { x: w * 0.95, y: h * 0.98 },  // BR
+        { x: w * 0.05, y: h * 0.98 },  // BL
+      ],
+      dragging: null,
+      rawImage: state.image, // keep reference to original loaded image
+    };
+
+    // If we have card lines from CV, use those intersections as initial corners
+    if (state.lines && state.lines.card_top && state.lines.card_left) {
+      const L = state.lines;
+      const corners = straightenState[side].corners;
+      // TL: card_left at card_top y, card_top at card_left x
+      const tlX = lineValAt(L.card_left, 'card_left', lineValAt(L.card_top, 'card_top', 0) || 0);
+      const tlY = lineValAt(L.card_top, 'card_top', lineValAt(L.card_left, 'card_left', 0) || 0);
+      if (tlX != null && tlY != null) corners[0] = { x: tlX, y: tlY };
+
+      const trX = lineValAt(L.card_right, 'card_right', corners[0].y);
+      const trY = lineValAt(L.card_top, 'card_top', w);
+      if (trX != null && trY != null) corners[1] = { x: trX, y: trY };
+
+      const brX = lineValAt(L.card_right, 'card_right', h);
+      const brY = lineValAt(L.card_bot, 'card_bot', w);
+      if (brX != null && brY != null) corners[2] = { x: brX, y: brY };
+
+      const blX = lineValAt(L.card_left, 'card_left', h);
+      const blY = lineValAt(L.card_bot, 'card_bot', 0);
+      if (blX != null && blY != null) corners[3] = { x: blX, y: blY };
+    }
+
+    document.getElementById(`btn-straighten-${side}`).style.display = 'none';
+    document.getElementById(`btn-apply-straighten-${side}`).style.display = '';
+    document.getElementById(`btn-cancel-straighten-${side}`).style.display = '';
+    draw(side);
+  }
+
+  function cancelStraighten(side) {
+    straightenState[side] = null;
+    document.getElementById(`btn-straighten-${side}`).style.display = '';
+    document.getElementById(`btn-apply-straighten-${side}`).style.display = 'none';
+    document.getElementById(`btn-cancel-straighten-${side}`).style.display = 'none';
+    draw(side);
+  }
+
+  async function applyStraighten(side) {
+    const ss = straightenState[side];
+    if (!ss) return;
+
+    const btn = document.getElementById(`btn-apply-straighten-${side}`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    setStatus(`Warping ${side} and re-running CV...`, 'info');
+
+    try {
+      const corners = ss.corners; // [TL, TR, BR, BL]
+      const dims = estimateWarpDimensions(corners);
+
+      // Warp the raw image (the one currently shown on canvas, which is the cropped inside-of-slab)
+      const warpedCanvas = perspectiveWarp(ss.rawImage, corners, dims.w, dims.h);
+
+      // Run CV centering on the warped image with no crop (it's already straightened)
+      const result = runCenteringCV(warpedCanvas, 'none');
+
+      cancelStraighten(side);
+      await loadSide(side, result);
+      setStatus(`${side} straightened and re-analyzed.`, 'success');
+    } catch (e) {
+      setStatus(`Straighten failed: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Apply & Re-run';
+    }
+  }
+
+  // Draw perspective corners overlay
+  function drawStraightenOverlay(side) {
+    const ss = straightenState[side];
+    if (!ss) return;
+    const canvas = document.getElementById('canvas-' + side);
+    const ctx = canvas.getContext('2d');
+    const { scale, tx, ty } = cvSides[side].transform;
+    const corners = ss.corners;
+    const labels = ['TL', 'TR', 'BR', 'BL'];
+
+    // Draw quadrilateral
+    ctx.strokeStyle = '#ff6600';
+    ctx.lineWidth = Math.max(1, 3 / scale);
+    ctx.setLineDash([8 / scale, 4 / scale]);
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw corner handles
+    for (let i = 0; i < 4; i++) {
+      const { x, y } = corners[i];
+      const isDragging = ss.dragging === i;
+      const r = Math.max(4, (isDragging ? 12 : 9) / scale);
+
+      ctx.fillStyle = isDragging ? '#ffffff' : '#ff6600';
+      ctx.globalAlpha = isDragging ? 1.0 : 0.9;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = isDragging ? '#00ffff' : '#000';
+      ctx.lineWidth = Math.max(0.5, 2 / scale);
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+
+      // Label
+      ctx.fillStyle = '#ff6600';
+      ctx.font = `bold ${14 / scale}px sans-serif`;
+      ctx.fillText(labels[i], x + r + 2 / scale, y - r);
+    }
+  }
+
+  function hitTestStraightenCorner(side, imgPos) {
+    const ss = straightenState[side];
+    if (!ss) return -1;
+    const radius = 18 / cvSides[side].transform.scale;
+    for (let i = 0; i < 4; i++) {
+      const dx = imgPos.x - ss.corners[i].x, dy = imgPos.y - ss.corners[i].y;
+      if (Math.sqrt(dx*dx + dy*dy) < radius) return i;
+    }
+    return -1;
   }
 
   // ── Load side data ─────────────────────────────────────────────────────────
