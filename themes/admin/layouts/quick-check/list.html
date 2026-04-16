@@ -160,7 +160,7 @@
               <i class="bi bi-bounding-box me-1"></i>Straighten
             </button>
             <button class="btn btn-warning btn-sm" id="btn-apply-straighten-front" onclick="applyStraighten('front')" style="display:none">
-              <i class="bi bi-check-lg me-1"></i>Apply & Re-run
+              <i class="bi bi-check-lg me-1"></i>Apply
             </button>
             <button class="btn btn-outline-secondary btn-sm" id="btn-cancel-straighten-front" onclick="cancelStraighten('front')" style="display:none">
               Cancel
@@ -199,7 +199,7 @@
               <i class="bi bi-bounding-box me-1"></i>Straighten
             </button>
             <button class="btn btn-warning btn-sm" id="btn-apply-straighten-back" onclick="applyStraighten('back')" style="display:none">
-              <i class="bi bi-check-lg me-1"></i>Apply & Re-run
+              <i class="bi bi-check-lg me-1"></i>Apply
             </button>
             <button class="btn btn-outline-secondary btn-sm" id="btn-cancel-straighten-back" onclick="cancelStraighten('back')" style="display:none">
               Cancel
@@ -880,26 +880,49 @@
     const btn = document.getElementById(`btn-apply-straighten-${side}`);
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    setStatus(`Warping ${side} and re-running CV...`, 'info');
+    setStatus(`Warping ${side}...`, 'info');
 
     try {
       const corners = ss.corners; // [TL, TR, BR, BL]
       const dims = estimateWarpDimensions(corners);
 
-      // Warp the raw image (the one currently shown on canvas, which is the cropped inside-of-slab)
+      // Warp the image — perspective correct to a rectangle
       const warpedCanvas = perspectiveWarp(ss.rawImage, corners, dims.w, dims.h);
+      const basePngB64 = warpedCanvas.toDataURL('image/png').split(',')[1];
 
-      // Run CV centering on the warped image with no crop (it's already straightened)
-      const result = runCenteringCV(warpedCanvas, 'none');
+      const imgW = dims.w, imgH = dims.h;
+
+      // Build default lines (card at edges, art inset) — no CV re-run
+      const defaultLines = {
+        card_top:   { x0: 0,    y0: imgH * 0.01, x1: imgW, y1: imgH * 0.01, kind: 'card' },
+        card_bot:   { x0: 0,    y0: imgH * 0.99, x1: imgW, y1: imgH * 0.99, kind: 'card' },
+        card_left:  { x0: imgW * 0.02, y0: 0, x1: imgW * 0.02, y1: imgH, kind: 'card' },
+        card_right: { x0: imgW * 0.98, y0: 0, x1: imgW * 0.98, y1: imgH, kind: 'card' },
+        art_top:    { x0: 0,    y0: imgH * 0.06, x1: imgW, y1: imgH * 0.06, kind: 'art' },
+        art_bot:    { x0: 0,    y0: imgH * 0.94, x1: imgW, y1: imgH * 0.94, kind: 'art' },
+        art_left:   { x0: imgW * 0.10, y0: 0, x1: imgW * 0.10, y1: imgH, kind: 'art' },
+        art_right:  { x0: imgW * 0.90, y0: 0, x1: imgW * 0.90, y1: imgH, kind: 'art' },
+      };
+
+      // Build a minimal data object (no detections/crops since we skipped CV)
+      const data = {
+        lines: defaultLines,
+        measurements: [],
+        detections: [],
+        crops: [],
+        image_size: { w: imgW, h: imgH },
+        base_png_b64: basePngB64,
+      };
 
       cancelStraighten(side);
-      await loadSide(side, result);
-      setStatus(`${side} straightened and re-analyzed.`, 'success');
+      await loadSide(side, data);
+      recalcMeasurements(side);
+      setStatus(`${side} straightened. Adjust the lines to match the card/art edges.`, 'success');
     } catch (e) {
       setStatus(`Straighten failed: ${e.message}`, 'error');
     } finally {
       btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Apply & Re-run';
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Apply';
     }
   }
 
