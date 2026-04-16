@@ -1,0 +1,550 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-lightning me-2"></i>{{ .Title }}</h2>
+</div>
+
+<p class="text-muted small mb-3">
+  Drop an eBay listing photo to see the slab, enter the cert number, then look up the card and run CV centering.
+</p>
+
+<!-- ── Step 1: Drop zone + cert input ────────────────────────────────────── -->
+<div class="row g-3 mb-3">
+  <div class="col-md-5">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-header bg-white border-0 py-2">
+        <span class="fw-semibold small">1. Drop eBay Photo</span>
+      </div>
+      <div class="card-body p-2 d-flex align-items-center justify-content-center"
+           style="min-height:300px">
+        <div id="drop-zone"
+             style="width:100%; height:100%; min-height:280px; border:2px dashed #ccc;
+                    border-radius:8px; display:flex; align-items:center; justify-content:center;
+                    cursor:pointer; position:relative; overflow:hidden; background:#fafafa"
+             ondragover="event.preventDefault(); this.style.borderColor='#0d6efd'"
+             ondragleave="this.style.borderColor='#ccc'"
+             ondrop="handleDrop(event)"
+             onclick="document.getElementById('file-input').click()">
+          <div id="drop-placeholder" class="text-center text-muted">
+            <i class="bi bi-image" style="font-size:3rem"></i>
+            <div class="mt-2">Drag & drop a photo here<br><small>or click to browse</small></div>
+          </div>
+          <img id="drop-preview" style="max-width:100%; max-height:100%; object-fit:contain; display:none">
+        </div>
+        <input type="file" id="file-input" accept="image/*" style="display:none"
+               onchange="handleFileSelect(this.files)">
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-7">
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-white border-0 py-2">
+        <span class="fw-semibold small">2. Enter Cert Number & Look Up</span>
+      </div>
+      <div class="card-body py-3">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label small fw-medium mb-1">PSA Cert Number</label>
+            <input type="text" class="form-control form-control-sm font-monospace"
+                   id="cert-number" placeholder="e.g. 151808073"
+                   onkeydown="if(event.key==='Enter') runLookup()">
+          </div>
+          <div class="col-md-3">
+            <button class="btn btn-primary btn-sm w-100" id="btn-lookup" onclick="runLookup()">
+              <i class="bi bi-search me-1"></i>Lookup
+            </button>
+          </div>
+          <div class="col-md-5">
+            <div id="lookup-status" class="small text-muted"></div>
+          </div>
+        </div>
+
+        <!-- Lookup results -->
+        <div id="lookup-results" class="mt-3" style="display:none">
+          <table class="table table-sm small mb-2">
+            <tbody id="lookup-table"></tbody>
+          </table>
+
+          <!-- Scan previews from PSA proxy -->
+          <div id="scan-previews" class="d-flex gap-2 mb-2" style="display:none!important">
+            <img id="scan-front-preview" class="border rounded" style="max-height:120px; display:none">
+            <img id="scan-back-preview"  class="border rounded" style="max-height:120px; display:none">
+          </div>
+
+          <div class="d-flex gap-2 flex-wrap">
+            <a id="psa-link" href="#" target="_blank" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-box-arrow-up-right me-1"></i>View on PSA
+            </a>
+            <button class="btn btn-success btn-sm" id="btn-fetch-cv" onclick="fetchScansAndRunCV()" disabled>
+              <i class="bi bi-cloud-download me-1"></i>Fetch Scans & Run CV
+            </button>
+            <button class="btn btn-outline-success btn-sm" id="btn-run-cv-only" onclick="runCVOnly()" style="display:none">
+              <i class="bi bi-crosshair me-1"></i>Run CV Only
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="card shadow-sm border-0 mt-3" id="status-card" style="display:none">
+      <div class="card-body py-2">
+        <div id="status-msg" class="small text-muted"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Step 3: CV Centering results ──────────────────────────────────────── -->
+<div id="cv-results" style="display:none">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <h5 class="h6 fw-semibold mb-0">3. CV Centering Results</h5>
+    <div class="d-flex gap-3 small">
+      <label><input type="checkbox" id="show-crops" checked> crops</label>
+      <label><input type="checkbox" id="show-points" checked> points</label>
+      <label><input type="checkbox" id="show-lines" checked> lines</label>
+      <label><input type="checkbox" id="show-labels"> labels</label>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-header bg-white border-0 py-2 d-flex justify-content-between align-items-center">
+          <span class="fw-semibold small">Front <span class="text-muted ms-1" id="cv-front-info"></span></span>
+          <button class="btn btn-link btn-sm p-0 text-muted" onclick="resetView('front')" title="Reset zoom/pan">
+            <i class="bi bi-arrow-counterclockwise"></i>
+          </button>
+        </div>
+        <div class="card-body p-2">
+          <canvas id="canvas-front"
+                  style="width:100%; height:60vh; border:1px solid #ddd; border-radius:4px;
+                         cursor:grab; background:#222; display:block"></canvas>
+          <table class="table table-sm small mb-0 mt-2" id="cv-front-table"></table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-header bg-white border-0 py-2 d-flex justify-content-between align-items-center">
+          <span class="fw-semibold small">Back <span class="text-muted ms-1" id="cv-back-info"></span></span>
+          <button class="btn btn-link btn-sm p-0 text-muted" onclick="resetView('back')" title="Reset zoom/pan">
+            <i class="bi bi-arrow-counterclockwise"></i>
+          </button>
+        </div>
+        <div class="card-body p-2">
+          <canvas id="canvas-back"
+                  style="width:100%; height:60vh; border:1px solid #ddd; border-radius:4px;
+                         cursor:grab; background:#222; display:block"></canvas>
+          <table class="table table-sm small mb-0 mt-2" id="cv-back-table"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  const PSA_PROXY_URL = (window.PSA_PROXY_URL || 'http://localhost:3001').replace(/\/$/, '');
+
+  // ── Image drop handling ────────────────────────────────────────────────────
+  function handleDrop(e) {
+    e.preventDefault();
+    e.currentTarget.style.borderColor = '#ccc';
+    const files = e.dataTransfer.files;
+    if (files.length) handleFileSelect(files);
+  }
+
+  function handleFileSelect(files) {
+    if (!files || !files.length) return;
+    const file = files[0];
+    if (!file.type.startsWith('image/')) {
+      showToast('Please drop an image file', 'warning');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const preview = document.getElementById('drop-preview');
+      const placeholder = document.getElementById('drop-placeholder');
+      preview.src = e.target.result;
+      preview.style.display = '';
+      placeholder.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // ── Status helpers ─────────────────────────────────────────────────────────
+  function setStatus(msg, kind) {
+    const card = document.getElementById('status-card');
+    const el = document.getElementById('status-msg');
+    card.style.display = msg ? '' : 'none';
+    el.textContent = msg || '';
+    el.className = 'small ' + (kind === 'error' ? 'text-danger'
+                              : kind === 'success' ? 'text-success'
+                              : kind === 'info' ? 'text-info' : 'text-muted');
+  }
+
+  // ── PSA Lookup (via proxy — fetches card info + scan images) ───────────────
+  let proxyData = null;  // holds full proxy response with scans[]
+
+  async function runLookup() {
+    const cert = document.getElementById('cert-number').value.trim();
+    if (!/^\d{7,10}$/.test(cert)) {
+      setStatus('Enter a valid cert number (7-10 digits)', 'error');
+      return;
+    }
+    const btn = document.getElementById('btn-lookup');
+    btn.disabled = true;
+    const prev = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Looking up...';
+    setStatus(`Looking up cert ${cert} via PSA proxy...`, 'info');
+
+    const proxyHeaders = {};
+    const proxyKey = window.PSA_PROXY_KEY;
+    if (proxyKey) proxyHeaders['X-API-Key'] = proxyKey;
+
+    try {
+      const resp = await fetch(`${PSA_PROXY_URL}/lookup/${cert}`, { headers: proxyHeaders });
+      if (!resp.ok) throw new Error(`Proxy returned ${resp.status}`);
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+
+      proxyData = data;
+      renderLookup(cert, data);
+      setStatus('', '');
+
+      // Enable the fetch+CV button
+      document.getElementById('btn-fetch-cv').disabled = false;
+
+      // If cert already exists in system, also show "Run CV Only"
+      if (data.existing_card) {
+        document.getElementById('btn-run-cv-only').style.display = '';
+      }
+    } catch (e) {
+      const msg = e.message.includes('Failed to fetch')
+        ? 'PSA proxy not running. Start with: python mcp/psa_proxy.py'
+        : e.message;
+      setStatus(`Lookup failed: ${msg}`, 'error');
+      document.getElementById('lookup-results').style.display = 'none';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = prev;
+    }
+  }
+
+  function renderLookup(cert, data) {
+    const table = document.getElementById('lookup-table');
+    const rows = [
+      ['Cert #', `<span class="font-monospace fw-bold">${cert}</span>`],
+      ['Grade', `<span class="badge ${data.grade >= 10 ? 'bg-success' : data.grade >= 9 ? 'bg-primary' : 'bg-secondary'}">${data.grading_company || 'PSA'} ${data.grade}</span>`],
+      ['Card', data.card_name || '\u2014'],
+      ['Set', `${data.set_code || '\u2014'} <span class="text-muted">(${data.game || '\u2014'})</span>`],
+      ['Year', data.era || '\u2014'],
+      ['Rarity', data.rarity || '\u2014'],
+      ['Treatment', data.treatment || '\u2014'],
+      ['Scans', `${data.scan_count || 0} found on PSA`],
+    ];
+    if (data.existing_card) {
+      rows.push(['Status', '<span class="badge bg-info">Already in system</span>']);
+    }
+    table.innerHTML = rows.map(([k, v]) =>
+      `<tr><td class="fw-medium text-muted" style="width:100px">${k}</td><td>${v}</td></tr>`
+    ).join('');
+
+    // Show scan thumbnails if available
+    const previewContainer = document.getElementById('scan-previews');
+    if (data.scans && data.scans.length > 0) {
+      previewContainer.style.display = '';
+      previewContainer.style.cssText = '';  // remove the !important hide
+      const frontImg = document.getElementById('scan-front-preview');
+      const backImg = document.getElementById('scan-back-preview');
+      if (data.scans[0]) {
+        frontImg.src = 'data:image/jpeg;base64,' + data.scans[0].data;
+        frontImg.style.display = '';
+      }
+      if (data.scans[1]) {
+        backImg.src = 'data:image/jpeg;base64,' + data.scans[1].data;
+        backImg.style.display = '';
+      }
+    }
+
+    document.getElementById('psa-link').href = `https://www.psacard.com/cert/${cert}`;
+    document.getElementById('lookup-results').style.display = '';
+  }
+
+  // ── Fetch scans to GCS (via scraped-submit) + run CV centering ────────────
+  async function fetchScansAndRunCV() {
+    const cert = document.getElementById('cert-number').value.trim();
+    if (!proxyData) { setStatus('Run lookup first', 'error'); return; }
+    if (!proxyData.scans || proxyData.scans.length === 0) {
+      setStatus('No scans found on PSA for this cert. Cannot run CV.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('btn-fetch-cv');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Fetching scans...';
+
+    try {
+      // Step 1: Submit scans to backend via scraped-submit
+      setStatus('Uploading scans to GCS via scraped-submit...', 'info');
+      const submitPayload = {
+        cert_number: cert,
+        fields: {
+          'Item Grade': proxyData.psa_grade_text || '',
+          'Year':       proxyData.psa_year || proxyData.era || '',
+          'Brand/Title': proxyData.psa_brand || '',
+          'Subject':    proxyData.psa_subject || '',
+          'Card Number': proxyData.card_number || '',
+          'Category':   proxyData.psa_category || '',
+          'Variety/Pedigree': proxyData.psa_variety || '',
+        },
+        scans: proxyData.scans,
+        role: 'candidate',
+      };
+      const submitResp = await api('POST', '/certs/scraped-submit', submitPayload);
+      const scanStatus = submitResp.scan_status || 'unknown';
+      if (submitResp.existing) {
+        setStatus(`Cert already in system (scans: ${scanStatus}). Running CV centering...`, 'info');
+      } else {
+        setStatus(`Scans uploaded (status: ${scanStatus}). Running CV centering...`, 'info');
+      }
+
+      // Step 2: Run CV centering
+      await runCVPipeline(cert);
+    } catch (e) {
+      setStatus(`Failed: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Fetch Scans & Run CV';
+    }
+  }
+
+  // Run CV centering only (for certs already in system)
+  async function runCVOnly() {
+    const cert = document.getElementById('cert-number').value.trim();
+    if (!/^\d{7,10}$/.test(cert)) return;
+
+    const btn = document.getElementById('btn-run-cv-only');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running...';
+    setStatus(`Running CV centering for ${cert}...`, 'info');
+
+    try {
+      await runCVPipeline(cert);
+    } catch (e) {
+      setStatus(`CV centering failed: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Run CV Only';
+    }
+  }
+
+  async function runCVPipeline(cert) {
+    document.getElementById('cv-results').style.display = '';
+
+    const [front, back] = await Promise.all([
+      api('GET', `/centering-cv/${cert}/front`),
+      api('GET', `/centering-cv/${cert}/back`),
+    ]);
+    await Promise.all([loadSide('front', front), loadSide('back', back)]);
+    setStatus(`CV centering complete for ${cert}.`, 'success');
+  }
+
+  // ── Canvas rendering (simplified from centering-cv page) ───────────────────
+  const sides = {
+    front: { data: null, image: null, transform: null },
+    back:  { data: null, image: null, transform: null },
+  };
+
+  function fitCanvas(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+  }
+
+  function computeInitialTransform(canvas, imgW, imgH) {
+    const scale = Math.min(canvas.width / imgW, canvas.height / imgH) * 0.98;
+    const tx = (canvas.width  - imgW * scale) / 2;
+    const ty = (canvas.height - imgH * scale) / 2;
+    return { scale, tx, ty };
+  }
+
+  function draw(side) {
+    const state = sides[side];
+    if (!state.data || !state.image) return;
+    const canvas = document.getElementById('canvas-' + side);
+    const ctx = canvas.getContext('2d');
+    const { scale, tx, ty } = state.transform;
+    const data = state.data;
+
+    const showCrops  = document.getElementById('show-crops').checked;
+    const showPoints = document.getElementById('show-points').checked;
+    const showLines  = document.getElementById('show-lines').checked;
+    const showLabels = document.getElementById('show-labels').checked;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, tx, ty);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(state.image, 0, 0);
+
+    // Crop rectangles
+    if (showCrops && data.crops) {
+      ctx.strokeStyle = '#0080ff';
+      ctx.lineWidth = Math.max(0.5, 1 / scale);
+      ctx.font = `${10 / scale}px sans-serif`;
+      ctx.fillStyle = '#0080ff';
+      for (const c of data.crops) {
+        ctx.strokeRect(c.x, c.y, c.w, c.h);
+        if (showLabels) ctx.fillText(c.name, c.x + 2, c.y + 10 / scale);
+      }
+    }
+
+    // Detection points
+    if (showPoints && data.detections) {
+      const rPt = Math.max(1, 2 / scale);
+      ctx.lineWidth = Math.max(0.5, 1 / scale);
+      for (const d of data.detections) {
+        const cardKept = new Set(d.card_kept);
+        const artKept  = new Set(d.art_kept);
+        for (let i = 0; i < d.card_points.length; i++) {
+          const [x, y] = d.card_points[i];
+          if (!cardKept.has(i)) continue;
+          ctx.beginPath();
+          ctx.arc(x, y, rPt, 0, Math.PI * 2);
+          ctx.fillStyle = '#00c800'; ctx.fill();
+        }
+        for (let i = 0; i < d.art_points.length; i++) {
+          const [x, y] = d.art_points[i];
+          if (!artKept.has(i)) continue;
+          ctx.beginPath();
+          ctx.arc(x, y, rPt, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffdc00'; ctx.fill();
+        }
+      }
+    }
+
+    // Fitted lines
+    if (showLines && data.lines) {
+      ctx.lineWidth = Math.max(1, 2 / scale);
+      for (const [name, L] of Object.entries(data.lines)) {
+        if (!L) continue;
+        ctx.strokeStyle = L.kind === 'card' ? '#00c800' : '#ffdc00';
+        ctx.beginPath();
+        ctx.moveTo(L.x0, L.y0);
+        ctx.lineTo(L.x1, L.y1);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function redrawAll() { draw('front'); draw('back'); }
+
+  // ── Zoom / pan ─────────────────────────────────────────────────────────────
+  function attachViewer(side) {
+    const canvas = document.getElementById('canvas-' + side);
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const state = sides[side];
+      if (!state.transform) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const cx = (e.clientX - rect.left) * dpr;
+      const cy = (e.clientY - rect.top)  * dpr;
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      const t = state.transform;
+      const imgX = (cx - t.tx) / t.scale;
+      const imgY = (cy - t.ty) / t.scale;
+      t.scale *= factor;
+      t.tx = cx - imgX * t.scale;
+      t.ty = cy - imgY * t.scale;
+      draw(side);
+    }, { passive: false });
+
+    let dragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener('mousedown', (e) => {
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      canvas.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dpr = window.devicePixelRatio || 1;
+      const t = sides[side].transform;
+      if (!t) return;
+      t.tx += (e.clientX - lastX) * dpr;
+      t.ty += (e.clientY - lastY) * dpr;
+      lastX = e.clientX; lastY = e.clientY;
+      draw(side);
+    });
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      document.getElementById('canvas-front').style.cursor = 'grab';
+      document.getElementById('canvas-back').style.cursor = 'grab';
+    });
+    canvas.addEventListener('dblclick', () => resetView(side));
+  }
+
+  function resetView(side) {
+    const state = sides[side];
+    if (!state.data || !state.image) return;
+    const canvas = document.getElementById('canvas-' + side);
+    fitCanvas(canvas);
+    state.transform = computeInitialTransform(canvas, state.data.image_size.w, state.data.image_size.h);
+    draw(side);
+  }
+
+  // ── Load side data + render measurements table ─────────────────────────────
+  function renderMeasurements(side, data) {
+    const table = document.getElementById(`cv-${side}-table`);
+    const info = document.getElementById(`cv-${side}-info`);
+    const meas = data.measurements || [];
+    const labels = { lr_top:'LR top', lr_bot:'LR bot', tb_left:'TB left', tb_right:'TB right' };
+
+    if (meas.length) {
+      table.innerHTML = `<thead><tr>
+          <th class="text-muted fw-normal">position</th>
+          <th class="text-muted fw-normal text-end">a</th><th></th>
+          <th class="text-muted fw-normal">b</th>
+          <th class="text-muted fw-normal text-end">ratio</th>
+        </tr></thead><tbody>` + meas.map(m => `<tr>
+          <td class="fw-medium">${labels[m.position] || m.position}</td>
+          <td class="font-monospace text-end">${m.left_px}px</td>
+          <td class="text-muted">/</td>
+          <td class="font-monospace">${m.right_px}px</td>
+          <td class="text-end"><span class="badge bg-secondary">${m.ratio}</span></td>
+        </tr>`).join('') + '</tbody>';
+    } else {
+      table.innerHTML = `<tr><td class="text-danger">${data.error || 'No measurements (line fit incomplete)'}</td></tr>`;
+    }
+
+    const dets = data.detections || [];
+    const lowConf = dets.filter(d => Math.min(d.card_score ?? 0, d.art_score ?? 0) < 0.30).length;
+    info.textContent = `${dets.length} crops \u00b7 ${lowConf} low-confidence`;
+  }
+
+  async function loadSide(side, data) {
+    sides[side].data = data;
+    const img = new Image();
+    img.onload = () => {
+      sides[side].image = img;
+      resetView(side);
+    };
+    img.src = 'data:image/png;base64,' + data.base_png_b64;
+    renderMeasurements(side, data);
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  window.addEventListener('load', () => {
+    attachViewer('front');
+    attachViewer('back');
+    ['show-crops','show-points','show-lines','show-labels']
+      .forEach(id => document.getElementById(id).addEventListener('input', redrawAll));
+    window.addEventListener('resize', () => { resetView('front'); resetView('back'); });
+  });
+</script>
+{{ end }}
