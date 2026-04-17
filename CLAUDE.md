@@ -23,9 +23,10 @@ Run `./setup.sh` after cloning this repo to clone all sibling repos to the corre
 | Repo | GitHub | Local Path | Purpose |
 |------|--------|-----------|---------|
 | Frontend admin (this repo) | `FutureGadgetCollections/slab-cracker-frontend-admin` | `.` | Hugo admin UI -- submit certs, view analysis results |
-| Backend | `FutureGadgetCollections/slab-cracker-backend` | `../slab-cracker-backend` | API + ML pipeline + Cloud Run jobs |
-| Public frontend | `FutureGadgetCollections/slab-cracker-frontend-public` | `../slab-cracker-frontend-public` | Read-only results viewer, no auth |
+| Consumer frontend | `FutureGadgetCollections/slab-cracker-frontend` | `../slab-cracker-frontend` | Public-facing subscription product (free / basic / pro tiers); Firebase Auth + Stripe |
+| Backend | `FutureGadgetCollections/slab-cracker-backend` | `../slab-cracker-backend` | API + ML pipeline + Cloud Run jobs; enforces tier gating |
 | Data files | `FutureGadgetCollections/slab-cracker-data` | `../slab-cracker-data` | JSON published by backend; read by frontends |
+| ~~Public frontend~~ | `FutureGadgetCollections/slab-cracker-frontend-public` | `../slab-cracker-frontend-public` | **Deprecated** — superseded by `slab-cracker-frontend`. Do not modify. |
 
 ## GCP Infrastructure
 
@@ -165,9 +166,10 @@ Each cert scan has a role that determines how it's used:
 1. **New API endpoint:** implement the handler in the backend AND wire up the `api()` call here.
 2. **New data field:** update the BigQuery schema in the backend, the GCS/JSON output shape, the data repo's JSON structure, and both frontends that consume it.
 3. **ML model changes:** update the analysis job in the backend repo; note it deploys as a separate Cloud Run Job.
-4. **Public frontend data change:** if the data shape changes, update the public frontend to match.
-5. **Commit separately** in each affected repo with matching/linked commit messages.
-6. **Never hardcode Firebase credentials** -- use environment variables.
+4. **Consumer frontend data change:** if the data shape changes, update `slab-cracker-frontend` to match. (Do NOT touch the deprecated `slab-cracker-frontend-public`.)
+5. **Tier / subscription changes:** any change to tiers, Stripe products, or gating logic must be reflected in `slab-cracker-frontend/docs/TIERS.md` and the backend's tier-enforcement code.
+6. **Commit separately** in each affected repo with matching/linked commit messages.
+7. **Never hardcode Firebase credentials** -- use environment variables.
 
 ## Custom Agents
 

@@ -9,8 +9,10 @@ PARENT="$(cd "$(dirname "$0")/.." && pwd)"
 
 repos=(
   "slab-cracker-backend"
-  "slab-cracker-frontend-public"
+  "slab-cracker-frontend"
   "slab-cracker-data"
+  # slab-cracker-frontend-public is deprecated (superseded by slab-cracker-frontend)
+  # and no longer cloned by default. Clone manually if needed for historical reference.
 )
 
 for repo in "${repos[@]}"; do

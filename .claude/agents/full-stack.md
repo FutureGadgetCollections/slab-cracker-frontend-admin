@@ -15,10 +15,12 @@ All repos are siblings under the same parent directory:
 ```
 YourProject/
 ├── your-frontend-admin/    ← Admin frontend — Hugo, Firebase auth (THIS working directory)
+├── your-frontend/          ← Public consumer frontend — Hugo, Firebase auth, Stripe tiers
 ├── your-backend/           ← Backend — API microservice + scheduled Cloud Run jobs
-├── your-frontend-public/   ← Public (non-admin) frontend — read-only, no auth
 └── your-data/              ← Data repo — JSON files updated by the backend
 ```
+
+> For this project: `slab-cracker-frontend-public` exists on disk but is **deprecated** — superseded by `slab-cracker-frontend`. Do not modify it; treat it as a historical artifact.
 
 **Before starting any task**, check your project's CLAUDE.md for the actual repo names and GitHub URLs configured for this project instance.
 
@@ -28,7 +30,7 @@ Before doing any work, read `CLAUDE.md` in this repo to find the sibling repo na
 
 ```bash
 # Replace these with the actual sibling repo names from CLAUDE.md
-for repo in your-backend your-frontend-public your-data; do
+for repo in your-backend your-frontend your-data; do
   if [ ! -d "../$repo" ]; then
     echo "Cloning $repo..."
     git clone "https://github.com/your-org/$repo" "../$repo"
@@ -45,8 +47,8 @@ Only clone repos that are actually needed for the current task — but always ch
 | Repo | Path |
 |------|------|
 | Admin frontend (this repo) | `.` |
+| Consumer frontend | `../your-frontend` |
 | Backend | `../your-backend` |
-| Public frontend | `../your-frontend-public` |
 | Data repo | `../your-data` |
 
 Always use these relative paths when reading or editing files in sibling repos.
@@ -87,10 +89,12 @@ Two distinct concerns live in this repo:
 - Fetch/sync data, update GCS and the data repo with fresh snapshots
 - No HTTP surface — purely job-based execution
 
-### Public Frontend
-- Non-admin, read-only site — no Firebase auth required
-- Reads data from the data GitHub repo or GCS
-- Never calls the write API
+### Consumer Frontend
+- Public-facing, consumer product with subscription tiers (free-anon, free-account, basic, pro)
+- Firebase Auth for sign-in, Stripe for subscriptions
+- Calls the backend API; the backend enforces tier gating on every gated endpoint
+- Tier state rides in a Firebase custom claim on the user's ID token, mirrored in BigQuery `subscriptions`
+- See `../your-frontend/docs/TIERS.md` and `../your-frontend/docs/ARCHITECTURE.md` for the full design
 
 ### Data Repo
 - Plain JSON files committed by the backend (both API-triggered and scheduled jobs)
@@ -119,6 +123,7 @@ Refer to this repo's CLAUDE.md for the actual resource names. The pattern is:
 1. **New API endpoint:** implement handler in the backend AND wire up the frontend `api()` call in the admin frontend.
 2. **New data field:** update the BigQuery schema/model in the backend, the GCS/JSON output shape, the data repo's JSON structure, and both frontends that consume it.
 3. **Scheduled job changes:** edit the job code in the backend repo; note that it deploys as a separate Cloud Run Job from the API service.
-4. **Public frontend data change:** if the data shape changes, update the public frontend to match.
-5. **Commit separately** in each affected repo with matching/linked commit messages so history stays navigable.
-6. **Never hardcode Firebase credentials** — they belong in `.env` (gitignored). Reference only non-sensitive identifiers (project ID, auth domain) in code and docs.
+4. **Consumer frontend data change:** if the data shape changes, update the consumer frontend to match.
+5. **Tier / subscription changes:** any change to tiers, Stripe products, or gating logic must be reflected in the consumer frontend's `docs/TIERS.md` and the backend's tier-enforcement code.
+6. **Commit separately** in each affected repo with matching/linked commit messages so history stays navigable.
+7. **Never hardcode Firebase credentials** — they belong in `.env` (gitignored). Reference only non-sensitive identifiers (project ID, auth domain) in code and docs.
