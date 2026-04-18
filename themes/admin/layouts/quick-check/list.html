@@ -891,8 +891,34 @@
       const basePngB64 = warpedCanvas.toDataURL('image/png').split(',')[1];
 
       const imgW = dims.w, imgH = dims.h;
+      const origSize = (state.data && state.data.image_size) || { w: imgW, h: imgH };
 
-      // Build default lines (card at edges, art inset) — no CV re-run
+      // Forward homography: maps ORIGINAL image coords → WARPED image coords.
+      // (perspectiveWarp uses the inverse of this internally for pixel sampling.)
+      // We need the forward mapping to move the user's existing line and point
+      // placements into the new image space.
+      const H_fwd = solveHomography(
+        corners,
+        [
+          { x: 0,    y: 0    },  // TL
+          { x: imgW, y: 0    },  // TR
+          { x: imgW, y: imgH },  // BR
+          { x: 0,    y: imgH },  // BL
+        ]
+      );
+
+      // Transform the user's existing lines (green = card, yellow = art)
+      // through H_fwd. Falls back to defaults if somehow no lines exist yet.
+      let transformedLines = null;
+      if (state.lines) {
+        transformedLines = {};
+        for (const [name, ctrl] of Object.entries(state.lines)) {
+          if (!ctrl) continue;
+          const ep = controlsToEndpoints(name, ctrl, origSize.w, origSize.h);
+          ep.kind = ctrl.kind;
+          transformedLines[name] = transformLineViaHomography(name, ep, H_fwd, imgW, imgH);
+        }
+      }
       const defaultLines = {
         card_top:   { x0: 0,    y0: imgH * 0.01, x1: imgW, y1: imgH * 0.01, kind: 'card' },
         card_bot:   { x0: 0,    y0: imgH * 0.99, x1: imgW, y1: imgH * 0.99, kind: 'card' },
@@ -904,11 +930,20 @@
         art_right:  { x0: imgW * 0.90, y0: 0, x1: imgW * 0.90, y1: imgH, kind: 'art' },
       };
 
-      // Build a minimal data object (no detections/crops since we skipped CV)
+      // Transform detection points (scattered green/yellow dots) through H_fwd
+      // so they track the same physical card features in the warped image.
+      const transformedDetections = transformDetectionsViaHomography(
+        (state.data && state.data.detections) || [],
+        H_fwd
+      );
+
+      // Crops are axis-aligned rectangles in the source image; after projective
+      // warp they become general quadrilaterals that strokeRect can't draw.
+      // Drop them rather than half-rendering skewed boxes.
       const data = {
-        lines: defaultLines,
+        lines: transformedLines || defaultLines,
         measurements: [],
-        detections: [],
+        detections: transformedDetections,
         crops: [],
         image_size: { w: imgW, h: imgH },
         base_png_b64: basePngB64,
@@ -917,7 +952,10 @@
       cancelStraighten(side);
       await loadSide(side, data);
       recalcMeasurements(side);
-      setStatus(`${side} straightened. Adjust the lines to match the card/art edges.`, 'success');
+      const msg = transformedLines
+        ? `${side} straightened. Your lines and points followed the warp — fine-tune if needed.`
+        : `${side} straightened. Adjust the lines to match the card/art edges.`;
+      setStatus(msg, 'success');
     } catch (e) {
       setStatus(`Straighten failed: ${e.message}`, 'error');
     } finally {

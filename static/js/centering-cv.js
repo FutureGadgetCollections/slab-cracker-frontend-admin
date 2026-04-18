@@ -774,3 +774,65 @@ function estimateWarpDimensions(corners) {
   const hRight = dist(corners[1], corners[2]);
   return { w: Math.round((wTop + wBot) / 2), h: Math.round((hLeft + hRight) / 2) };
 }
+
+/**
+ * Apply a 3x3 homography H (9-element array) to a single (x, y) point.
+ * Returns the transformed {x, y}.
+ */
+function applyHomography(H, x, y) {
+  const w = H[6] * x + H[7] * y + H[8];
+  return {
+    x: (H[0] * x + H[1] * y + H[2]) / w,
+    y: (H[3] * x + H[4] * y + H[5]) / w,
+  };
+}
+
+/**
+ * Transform an edge-spanning line `{x0, y0, x1, y1, kind}` from source image
+ * coords to warped image coords, then rebuild it as edge-spanning in the new
+ * image (y=0..newH for vertical lines, x=0..newW for horizontal). Projective
+ * transforms preserve straightness but not parallelism to axes, so we
+ * extrapolate through the two transformed endpoints.
+ */
+function transformLineViaHomography(name, line, H, newW, newH) {
+  const p0 = applyHomography(H, line.x0, line.y0);
+  const p1 = applyHomography(H, line.x1, line.y1);
+  const isVert = /_left$|_right$/.test(name);
+
+  if (isVert) {
+    const dy = p1.y - p0.y;
+    if (Math.abs(dy) < 1e-6) {
+      return { kind: line.kind, x0: p0.x, y0: 0, x1: p0.x, y1: newH };
+    }
+    const xAtY0 = p0.x + (p1.x - p0.x) * (0 - p0.y) / dy;
+    const xAtYH = p0.x + (p1.x - p0.x) * (newH - p0.y) / dy;
+    return { kind: line.kind, x0: xAtY0, y0: 0, x1: xAtYH, y1: newH };
+  }
+
+  const dx = p1.x - p0.x;
+  if (Math.abs(dx) < 1e-6) {
+    return { kind: line.kind, x0: 0, y0: p0.y, x1: newW, y1: p0.y };
+  }
+  const yAtX0 = p0.y + (p1.y - p0.y) * (0 - p0.x) / dx;
+  const yAtXW = p0.y + (p1.y - p0.y) * (newW - p0.x) / dx;
+  return { kind: line.kind, x0: 0, y0: yAtX0, x1: newW, y1: yAtXW };
+}
+
+/**
+ * Transform CV detection point clouds through a homography. Preserves kept
+ * indices and all other fields; only card_points / art_points move.
+ */
+function transformDetectionsViaHomography(detections, H) {
+  if (!Array.isArray(detections)) return [];
+  return detections.map(d => ({
+    ...d,
+    card_points: (d.card_points || []).map(([x, y]) => {
+      const p = applyHomography(H, x, y);
+      return [p.x, p.y];
+    }),
+    art_points: (d.art_points || []).map(([x, y]) => {
+      const p = applyHomography(H, x, y);
+      return [p.x, p.y];
+    }),
+  }));
+}
