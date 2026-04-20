@@ -637,13 +637,22 @@
     return Math.max(...parts);
   }
 
-  // For an axis (LR or TB), take the worse of the two measurements
-  function worstRatio(r1, r2) {
+  // For an axis (LR or TB), take the worse of the two measurements.
+  // Returns { larger, bias } where bias is 'left'/'right' for LR or 'top'/'bot' for TB.
+  // Ratio convention: LR = "pL/pR" (first num is left%); TB = "pT/pB" (first num is top%).
+  function ratioBias(ratio, axis) {
+    if (!ratio) return null;
+    const [a, b] = ratio.split('/').map(Number);
+    if (a === b) return null;
+    if (axis === 'lr') return a > b ? 'left' : 'right';
+    return a > b ? 'top' : 'bot';
+  }
+  function worstRatio(r1, r2, axis) {
     const v1 = parseLarger(r1), v2 = parseLarger(r2);
-    if (v1 === null && v2 === null) return null;
-    if (v1 === null) return v2;
-    if (v2 === null) return v1;
-    return Math.max(v1, v2);
+    if (v1 === null && v2 === null) return { larger: null, bias: null };
+    const pickFirst = v2 === null || (v1 !== null && v1 >= v2);
+    const r = pickFirst ? r1 : r2;
+    return { larger: pickFirst ? v1 : v2, bias: ratioBias(r, axis) };
   }
 
   // Count defects from the saved defects JSON arrays (respects rejected status)
@@ -664,10 +673,10 @@
 
   function computeScores(c) {
     // Centering: worst of top/bot for LR, worst of left/right for TB
-    const frontLR = worstRatio(c.front_lr_top_ratio, c.front_lr_bot_ratio);
-    const frontTB = worstRatio(c.front_tb_left_ratio, c.front_tb_right_ratio);
-    const backLR = worstRatio(c.back_lr_top_ratio, c.back_lr_bot_ratio);
-    const backTB = worstRatio(c.back_tb_left_ratio, c.back_tb_right_ratio);
+    const frontLR = worstRatio(c.front_lr_top_ratio, c.front_lr_bot_ratio, 'lr');
+    const frontTB = worstRatio(c.front_tb_left_ratio, c.front_tb_right_ratio, 'tb');
+    const backLR = worstRatio(c.back_lr_top_ratio, c.back_lr_bot_ratio, 'lr');
+    const backTB = worstRatio(c.back_tb_left_ratio, c.back_tb_right_ratio, 'tb');
 
     // Defects from saved arrays (not whitening_* counts which are LLM originals)
     const cornerKeys = [];
@@ -699,11 +708,14 @@
     }
   }
 
-  function centeringCell(val, side) {
-    if (val === null) return '<span class="text-muted">—</span>';
+  function centeringCell(score, side) {
+    const val = score && score.larger;
+    if (val === null || val === undefined) return '<span class="text-muted">—</span>';
     const color = centeringColor(val, side);
     const other = 100 - val;
-    return `<span class="text-${color} fw-medium small">${val}/${other}</span>`;
+    const heavyLabels = { left: 'left heavy', right: 'right heavy', top: 'top heavy', bot: 'bot heavy' };
+    const heavy = (color !== 'success' && score.bias) ? `<div class="small text-${color}" style="font-size:10px">${heavyLabels[score.bias]}</div>` : '';
+    return `<span class="text-${color} fw-medium small">${val}/${other}</span>${heavy}`;
   }
 
   // Defect scoring:
