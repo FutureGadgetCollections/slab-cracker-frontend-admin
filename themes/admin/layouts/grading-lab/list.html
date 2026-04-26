@@ -1,0 +1,423 @@
+{{ define "main" }}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="h5 mb-0 fw-semibold"><i class="bi bi-flask me-2"></i>{{ .Title }}</h2>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-primary" onclick="showNewLifecycleModal()">
+      <i class="bi bi-plus-circle me-1"></i>Track New Card
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadLifecycles()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+</div>
+
+<p class="text-muted small">
+  Testing ground for the new grading lifecycle: track a card from raw → submission → result, including crack-and-resubmit cycles. PSA 9/10 price snapshots are captured at submit and at return.
+</p>
+
+<!-- Auth guard -->
+<div id="auth-guard" class="alert alert-warning d-none">
+  <i class="bi bi-lock me-1"></i>You must be <a href="{{ "" | relURL }}">signed in</a>.
+</div>
+
+<div id="main-content" class="d-none">
+
+<!-- EV calculator -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-header bg-white border-0 py-2 d-flex align-items-center justify-content-between">
+    <strong class="small"><i class="bi bi-calculator me-1"></i>Grading EV Calculator</strong>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#evBody">
+      <i class="bi bi-chevron-down"></i>
+    </button>
+  </div>
+  <div class="collapse show" id="evBody">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2"><label class="form-label small">Purchase price ($)</label>
+          <input type="number" step="0.01" class="form-control form-control-sm" id="ev-purchase" value="50" oninput="recalcEV()"></div>
+        <div class="col-md-2"><label class="form-label small">Submission cost ($)</label>
+          <input type="number" step="0.01" class="form-control form-control-sm" id="ev-sub-cost" value="19" oninput="recalcEV()"></div>
+        <div class="col-md-2"><label class="form-label small">PSA 9 comp ($)</label>
+          <input type="number" step="0.01" class="form-control form-control-sm" id="ev-psa9" value="100" oninput="recalcEV()"></div>
+        <div class="col-md-2"><label class="form-label small">PSA 10 comp ($)</label>
+          <input type="number" step="0.01" class="form-control form-control-sm" id="ev-psa10" value="600" oninput="recalcEV()"></div>
+        <div class="col-md-2"><label class="form-label small">Gem rate (%)</label>
+          <input type="number" step="0.1" min="0" max="100" class="form-control form-control-sm" id="ev-gem-rate" value="35" oninput="recalcEV()"></div>
+        <div class="col-md-2 text-end">
+          <button class="btn btn-sm btn-outline-primary w-100" onclick="loadOverallGemRate()" title="Pull your overall gem rate from /regrades/stats">
+            <i class="bi bi-cloud-download me-1"></i>Use my gem rate
+          </button>
+        </div>
+      </div>
+      <hr>
+      <div class="row g-2">
+        <div class="col-md-3"><div class="small text-muted">Expected sale value</div>
+          <div class="h6 mb-0" id="ev-expected-sale">$0.00</div></div>
+        <div class="col-md-3"><div class="small text-muted">Total cost</div>
+          <div class="h6 mb-0" id="ev-total-cost">$0.00</div></div>
+        <div class="col-md-3"><div class="small text-muted">Expected value (EV)</div>
+          <div class="h5 mb-0" id="ev-net">$0.00</div></div>
+        <div class="col-md-3"><div class="small text-muted">Break-even gem rate</div>
+          <div class="h6 mb-0" id="ev-break-even">—</div></div>
+      </div>
+      <div class="form-text small mt-2">
+        EV = (gem_rate &times; PSA10) + ((1 &minus; gem_rate) &times; PSA9) &minus; submission_cost &minus; purchase_price.
+        Assumes any non-PSA-10 result sells at the PSA 9 comp (a simplification).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="lifecycles-list" class="row g-3"></div>
+<div id="empty-state" class="text-muted small text-center py-5 d-none">
+  No tracked cards yet. Click <strong>Track New Card</strong> to start.
+</div>
+
+</div> <!-- /main-content -->
+
+<!-- New lifecycle modal -->
+<div class="modal fade" id="newLifecycleModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Track New Card</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-medium">Starting state</label>
+          <div class="btn-group w-100" role="group">
+            <input type="radio" class="btn-check" name="startingState" id="state-raw" value="raw" checked onchange="toggleStartingFields()">
+            <label class="btn btn-outline-primary" for="state-raw">Raw card (will submit for first grade)</label>
+            <input type="radio" class="btn-check" name="startingState" id="state-graded" value="graded_pre_crack" onchange="toggleStartingFields()">
+            <label class="btn btn-outline-primary" for="state-graded">Already graded (plan to crack)</label>
+          </div>
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-3"><label class="form-label small">Game</label>
+            <input type="text" class="form-control form-control-sm" id="lc-game" placeholder="pokemon"></div>
+          <div class="col-md-3"><label class="form-label small">Set Code</label>
+            <input type="text" class="form-control form-control-sm" id="lc-set" placeholder="sv01"></div>
+          <div class="col-md-2"><label class="form-label small">Card #</label>
+            <input type="text" class="form-control form-control-sm" id="lc-num" placeholder="006"></div>
+          <div class="col-md-4"><label class="form-label small">Card Name</label>
+            <input type="text" class="form-control form-control-sm" id="lc-name" placeholder="Charizard ex"></div>
+        </div>
+
+        <div id="graded-fields" class="row g-2 mb-2 d-none">
+          <div class="col-md-6"><label class="form-label small">Starting Cert #</label>
+            <input type="text" class="form-control form-control-sm font-monospace" id="lc-start-cert" placeholder="12345678"></div>
+          <div class="col-md-6"><label class="form-label small">Starting Grade</label>
+            <select class="form-select form-select-sm" id="lc-start-grade">
+              <option value="">—</option>
+              <option value="9">PSA 9</option>
+              <option value="8.5">PSA 8.5</option>
+              <option value="8">PSA 8</option>
+              <option value="7">PSA 7</option>
+            </select></div>
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-4"><label class="form-label small">Purchase Price ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="lc-price"></div>
+          <div class="col-md-4"><label class="form-label small">Purchase Date</label>
+            <input type="date" class="form-control form-control-sm" id="lc-date"></div>
+          <div class="col-md-4"><label class="form-label small">eBay URL</label>
+            <input type="url" class="form-control form-control-sm" id="lc-ebay"></div>
+        </div>
+
+        <div class="mb-2"><label class="form-label small">Notes</label>
+          <textarea class="form-control form-control-sm" id="lc-notes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="createLifecycle()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "page-scripts" }}
+<script>
+  let lifecycles = [];
+  const newLifecycleModal = new bootstrap.Modal(document.getElementById('newLifecycleModal'));
+  const backendUrl = document.body.dataset.backendUrl.replace(/\/$/, '');
+
+  if (!window._firebaseReady) {
+    document.getElementById('auth-guard').classList.remove('d-none');
+  } else {
+    firebase.auth().onAuthStateChanged(async user => {
+      if (!user) { document.getElementById('auth-guard').classList.remove('d-none'); return; }
+      document.getElementById('main-content').classList.remove('d-none');
+      recalcEV();
+      await loadLifecycles();
+    });
+  }
+
+  function recalcEV() {
+    const purchase = parseFloat(document.getElementById('ev-purchase').value) || 0;
+    const subCost  = parseFloat(document.getElementById('ev-sub-cost').value) || 0;
+    const psa9     = parseFloat(document.getElementById('ev-psa9').value)     || 0;
+    const psa10    = parseFloat(document.getElementById('ev-psa10').value)    || 0;
+    const gemPct   = parseFloat(document.getElementById('ev-gem-rate').value) || 0;
+    const gemRate  = Math.max(0, Math.min(1, gemPct / 100));
+
+    const expectedSale = gemRate * psa10 + (1 - gemRate) * psa9;
+    const totalCost = purchase + subCost;
+    const ev = expectedSale - totalCost;
+
+    // Break-even gem rate: solve EV=0 for gemRate
+    //   gr * (psa10 - psa9) + psa9 - totalCost = 0
+    //   gr = (totalCost - psa9) / (psa10 - psa9)
+    let breakEven = '—';
+    if (psa10 > psa9) {
+      const br = (totalCost - psa9) / (psa10 - psa9);
+      if (br < 0) breakEven = '0% (profitable at PSA 9 alone)';
+      else if (br > 1) breakEven = '>100% (unprofitable even if every card 10s)';
+      else breakEven = (br * 100).toFixed(1) + '%';
+    }
+
+    document.getElementById('ev-expected-sale').textContent = '$' + expectedSale.toFixed(2);
+    document.getElementById('ev-total-cost').textContent    = '$' + totalCost.toFixed(2);
+    const evEl = document.getElementById('ev-net');
+    evEl.textContent = (ev >= 0 ? '+' : '') + '$' + ev.toFixed(2);
+    evEl.className = 'h5 mb-0 ' + (ev >= 0 ? 'text-success' : 'text-danger');
+    document.getElementById('ev-break-even').textContent = breakEven;
+  }
+
+  async function loadOverallGemRate() {
+    try {
+      const s = await api('GET', '/regrades/stats');
+      const rate = s && s.overall && s.overall.gem_rate != null ? s.overall.gem_rate : null;
+      if (rate == null) {
+        showToast('No overall gem rate available yet — record some results first', 'warning');
+        return;
+      }
+      document.getElementById('ev-gem-rate').value = (rate * 100).toFixed(1);
+      recalcEV();
+      showToast(`Pulled gem rate: ${(rate*100).toFixed(1)}%`, 'success');
+    } catch (e) { showToast('Failed to load gem rate: '+e.message, 'danger'); }
+  }
+
+  function toggleStartingFields() {
+    const isGraded = document.getElementById('state-graded').checked;
+    document.getElementById('graded-fields').classList.toggle('d-none', !isGraded);
+  }
+
+  function showNewLifecycleModal() {
+    ['lc-game','lc-set','lc-num','lc-name','lc-start-cert','lc-price','lc-date','lc-ebay','lc-notes']
+      .forEach(id => document.getElementById(id).value = '');
+    document.getElementById('lc-start-grade').value = '';
+    document.getElementById('state-raw').checked = true;
+    toggleStartingFields();
+    newLifecycleModal.show();
+  }
+
+  async function createLifecycle() {
+    const startingState = document.querySelector('input[name="startingState"]:checked').value;
+    const body = {
+      starting_state:        startingState,
+      game:                  document.getElementById('lc-game').value.trim(),
+      set_code:              document.getElementById('lc-set').value.trim(),
+      card_number:           document.getElementById('lc-num').value.trim(),
+      card_name:             document.getElementById('lc-name').value.trim(),
+      starting_cert_number:  document.getElementById('lc-start-cert').value.trim(),
+      starting_grade:        document.getElementById('lc-start-grade').value,
+      purchase_price:        parseFloat(document.getElementById('lc-price').value) || 0,
+      purchase_date:         document.getElementById('lc-date').value,
+      ebay_url:              document.getElementById('lc-ebay').value.trim(),
+      notes:                 document.getElementById('lc-notes').value.trim(),
+    };
+    if (startingState === 'graded_pre_crack' && !body.starting_cert_number) {
+      showToast('Starting cert # required for already-graded cards', 'warning');
+      return;
+    }
+    try {
+      await api('POST', '/grading/lifecycles', body);
+      newLifecycleModal.hide();
+      showToast('Card tracking started', 'success');
+      await loadLifecycles();
+    } catch (e) { showToast('Create failed: '+e.message, 'danger'); }
+  }
+
+  async function loadLifecycles() {
+    try {
+      lifecycles = await api('GET', '/grading/lifecycles') || [];
+      renderLifecycles();
+    } catch (e) { showToast('Load failed: '+e.message, 'danger'); }
+  }
+
+  function renderLifecycles() {
+    const wrap = document.getElementById('lifecycles-list');
+    document.getElementById('empty-state').classList.toggle('d-none', lifecycles.length > 0);
+    wrap.innerHTML = lifecycles.map(renderCard).join('');
+  }
+
+  function renderCard(lc) {
+    const id = lc.id;
+    const title = [lc.card_name, lc.set_code, lc.card_number].filter(Boolean).join(' · ') || '(unnamed)';
+    const lastAttempt = lc.attempts && lc.attempts.length > 0 ? lc.attempts[lc.attempts.length-1] : null;
+    return `
+      <div class="col-md-6 col-lg-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <div>
+                <h6 class="mb-0">${esc(title)}</h6>
+                <div class="text-muted small">${esc(lc.game||'')}</div>
+              </div>
+              <button class="btn btn-sm btn-outline-danger" onclick='deleteLifecycle("${id}")' title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+            <div class="d-flex gap-1 mb-2">${rawScanThumbs(lc)}</div>
+            <div class="mb-2">
+              <input type="file" class="form-control form-control-sm" multiple accept="image/*"
+                onchange='uploadRawScans("${id}", this.files)' title="Upload raw front/back scans">
+              <div class="form-text small">Raw scans (front + back). Max 32 MB each.</div>
+            </div>
+            <hr class="my-2">
+            <div class="small fw-medium mb-1">
+              Attempts <span class="badge bg-secondary">${lc.attempts ? lc.attempts.length : 0}</span>
+            </div>
+            ${lc.attempts ? lc.attempts.map(renderAttempt).join('') : ''}
+            ${lastAttempt && lastAttempt.status === 'result_received' ? `
+              <button class="btn btn-sm btn-outline-warning w-100 mt-2" onclick='startCrack("${id}", "${esc(lastAttempt.result_grade||'')}")'>
+                <i class="bi bi-arrow-repeat me-1"></i>Crack & Resubmit
+              </button>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderAttempt(a) {
+    const cost = a.purchase_price ? '$'+a.purchase_price.toFixed(2) : '—';
+    const submitPrices = (a.submitted_at_psa9_price || a.submitted_at_psa10_price)
+      ? `<div class="small text-muted">@submit: 9=$${(a.submitted_at_psa9_price||0).toFixed(0)} / 10=$${(a.submitted_at_psa10_price||0).toFixed(0)}</div>` : '';
+    const returnPrices = (a.result_at_psa9_price || a.result_at_psa10_price)
+      ? `<div class="small text-muted">@return: 9=$${(a.result_at_psa9_price||0).toFixed(0)} / 10=$${(a.result_at_psa10_price||0).toFixed(0)}</div>` : '';
+    const cv = [
+      a.pre_submit_centering_score != null ? `cent ${(a.pre_submit_centering_score*100).toFixed(0)}` : null,
+      a.pre_submit_corner_score    != null ? `corn ${(a.pre_submit_corner_score*100).toFixed(0)}`    : null,
+      a.pre_submit_edge_score      != null ? `edge ${(a.pre_submit_edge_score*100).toFixed(0)}`      : null,
+      a.pre_submit_surface_score   != null ? `surf ${(a.pre_submit_surface_score*100).toFixed(0)}`   : null,
+    ].filter(Boolean).join(' · ');
+    const cvLine = cv ? `<div class="small text-muted">CV: ${cv}</div>` : '';
+    return `
+      <div class="border rounded p-2 mb-1 small">
+        <div class="d-flex justify-content-between">
+          <span>#${a.attempt_seq} · ${statusBadge(a.status)}</span>
+          <span class="text-muted">${a.starting_state}${a.starting_grade ? ' (was '+a.starting_grade+')' : ''}</span>
+        </div>
+        <div class="text-muted">Paid: ${cost}</div>
+        ${submitPrices}
+        ${returnPrices}
+        ${cvLine}
+        ${a.result_grade ? `<div>Result: ${gradeBadge(a.result_grade)} ${a.result_cert_number ? '<span class="font-monospace">'+esc(a.result_cert_number)+'</span>' : ''}</div>` : ''}
+        <div class="d-flex gap-1 mt-1">
+          <button class="btn btn-xs btn-outline-secondary" onclick='editAttempt("${a.attempt_id}")'>Edit</button>
+          ${!a.result_grade ? `<button class="btn btn-xs btn-outline-success" onclick='recordResult("${a.attempt_id}")'>Record Result</button>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function rawScanThumbs(lc) {
+    let html = '';
+    if (lc.raw_front_path) html += `<img src="${backendUrl}/scans/${lc.raw_front_path}" style="height:48px;border-radius:3px" title="Raw front">`;
+    if (lc.raw_back_path) html += `<img src="${backendUrl}/scans/${lc.raw_back_path}" style="height:48px;border-radius:3px" title="Raw back">`;
+    if (!html) html = '<span class="text-muted small">No raw scans yet</span>';
+    return html;
+  }
+
+  async function uploadRawScans(lifecycleId, files) {
+    if (!files || files.length === 0) return;
+    const fd = new FormData();
+    if (files[0]) fd.append('front', files[0]);
+    if (files[1]) fd.append('back', files[1]);
+    const user = firebase.auth().currentUser;
+    const token = await user.getIdToken();
+    const res = await fetch(`${backendUrl}/grading/lifecycles/${lifecycleId}/raw-scans`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: fd,
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch (_) {}
+      showToast('Upload failed: '+msg, 'danger');
+      return;
+    }
+    showToast('Raw scans uploaded', 'success');
+    await loadLifecycles();
+  }
+
+  async function editAttempt(attemptId) {
+    const fields = prompt('Update fields as JSON (e.g. {"submission_id":"batch-2026-04","submitted_at_psa9_price":150,"submitted_at_psa10_price":900,"status":"submitted"})');
+    if (!fields) return;
+    let body;
+    try { body = JSON.parse(fields); } catch (_) { showToast('Invalid JSON', 'warning'); return; }
+    try {
+      await api('PUT', `/grading/attempts/${attemptId}`, body);
+      showToast('Updated', 'success');
+      await loadLifecycles();
+    } catch (e) { showToast('Update failed: '+e.message, 'danger'); }
+  }
+
+  async function recordResult(attemptId) {
+    const grade = prompt('Result grade? (10, 9.5, 9, 8.5, 8, ...)');
+    if (!grade) return;
+    const cert = prompt('New cert number?') || '';
+    const psa9 = parseFloat(prompt('PSA 9 comp price at return ($)?') || '0') || 0;
+    const psa10 = parseFloat(prompt('PSA 10 comp price at return ($)?') || '0') || 0;
+    try {
+      await api('PUT', `/grading/attempts/${attemptId}`, {
+        result_grade: grade,
+        result_cert_number: cert,
+        result_at_psa9_price: psa9 || null,
+        result_at_psa10_price: psa10 || null,
+        status: 'result_received',
+      });
+      showToast('Result recorded', 'success');
+      await loadLifecycles();
+    } catch (e) { showToast('Save failed: '+e.message, 'danger'); }
+  }
+
+  async function startCrack(lifecycleId, lastGrade) {
+    if (!confirm(`Mark current attempt as cracked and start a new one${lastGrade ? ' (was PSA '+lastGrade+')' : ''}?`)) return;
+    const lc = lifecycles.find(l => l.id === lifecycleId);
+    const lastAttempt = lc.attempts[lc.attempts.length-1];
+    try {
+      await api('PUT', `/grading/attempts/${lastAttempt.attempt_id}`, { status: 'cracked' });
+      await api('POST', `/grading/lifecycles/${lifecycleId}/attempts`, {
+        starting_cert_number: lastAttempt.result_cert_number || '',
+        starting_grade: lastGrade,
+      });
+      showToast('Crack recorded; new attempt created', 'success');
+      await loadLifecycles();
+    } catch (e) { showToast('Crack failed: '+e.message, 'danger'); }
+  }
+
+  async function deleteLifecycle(id) {
+    if (!confirm('Delete this lifecycle and all its attempts? GCS scans are NOT deleted.')) return;
+    try {
+      await api('DELETE', `/grading/lifecycles/${id}`);
+      showToast('Deleted', 'success');
+      await loadLifecycles();
+    } catch (e) { showToast('Delete failed: '+e.message, 'danger'); }
+  }
+
+  function statusBadge(s) {
+    const map = {planned:'secondary',submitted:'info',result_received:'success',cracked:'warning',abandoned:'dark'};
+    return `<span class="badge bg-${map[s]||'secondary'}">${esc(s)}</span>`;
+  }
+  function gradeBadge(g) {
+    const colors = {'10':'success','9.5':'info','9':'primary','8.5':'warning','8':'warning','7':'danger'};
+    return `<span class="badge bg-${colors[g]||'secondary'}">${esc(g)}</span>`;
+  }
+  function esc(s) { if (s == null) return ''; const d=document.createElement('div'); d.appendChild(document.createTextNode(String(s))); return d.innerHTML; }
+</script>
+<style>
+  .btn-xs { padding: 0.1rem 0.4rem; font-size: 0.7rem; }
+</style>
+{{ end }}
