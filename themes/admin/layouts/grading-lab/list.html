@@ -136,6 +136,171 @@
     </div>
   </div>
 </div>
+
+<!-- Submit attempt modal — captures researched values + computes EV snapshot -->
+<div class="modal fade" id="submitAttemptModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Record Submission</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="sub-attempt-id">
+        <div class="row g-2 mb-2">
+          <div class="col-md-4"><label class="form-label small">Batch (existing or new)</label>
+            <input list="batch-options" type="text" class="form-control form-control-sm" id="sub-batch-id" placeholder="batch-2026-04">
+            <datalist id="batch-options"></datalist></div>
+          <div class="col-md-4"><label class="form-label small">Per-card submission cost ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="sub-cost" oninput="recalcSubmitEV()" placeholder="19.00"></div>
+          <div class="col-md-4"><label class="form-label small">Researched gem rate (%)</label>
+            <input type="number" step="0.1" min="0" max="100" class="form-control form-control-sm" id="sub-gem-rate" oninput="recalcSubmitEV()" placeholder="35"></div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-md-4"><label class="form-label small">PSA 9 comp ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="sub-psa9" oninput="recalcSubmitEV()" placeholder="100"></div>
+          <div class="col-md-4"><label class="form-label small">PSA 10 comp ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="sub-psa10" oninput="recalcSubmitEV()" placeholder="600"></div>
+          <div class="col-md-4"><label class="form-label small">Purchase price (override)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="sub-purchase" oninput="recalcSubmitEV()" placeholder="from attempt"></div>
+        </div>
+        <hr>
+        <div class="row g-2 small">
+          <div class="col-md-3"><div class="text-muted">Expected sale</div><div class="fw-medium" id="sub-expected">—</div></div>
+          <div class="col-md-3"><div class="text-muted">Total cost</div><div class="fw-medium" id="sub-total">—</div></div>
+          <div class="col-md-3"><div class="text-muted">EV at submit</div><div class="fw-bold" id="sub-ev">—</div></div>
+          <div class="col-md-3"><div class="text-muted">Break-even rate</div><div class="fw-medium" id="sub-break">—</div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSubmit()">Save & mark submitted</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit attempt modal — structured form mirroring the table columns -->
+<div class="modal fade" id="editAttemptModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Edit Attempt</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-attempt-id">
+        <h6 class="small fw-medium text-uppercase text-muted mb-2">Provenance</h6>
+        <div class="row g-2 mb-3">
+          <div class="col-md-3"><label class="form-label small">Status</label>
+            <select class="form-select form-select-sm" id="edit-status">
+              <option value="planned">planned</option>
+              <option value="submitted">submitted</option>
+              <option value="result_received">result_received</option>
+              <option value="cracked">cracked</option>
+              <option value="abandoned">abandoned</option>
+            </select></div>
+          <div class="col-md-3"><label class="form-label small">Purchase price ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="edit-price"></div>
+          <div class="col-md-3"><label class="form-label small">Purchase date</label>
+            <input type="date" class="form-control form-control-sm" id="edit-date"></div>
+          <div class="col-md-3"><label class="form-label small">eBay URL</label>
+            <input type="url" class="form-control form-control-sm" id="edit-ebay"></div>
+        </div>
+
+        <h6 class="small fw-medium text-uppercase text-muted mb-2">Submission research</h6>
+        <div class="row g-2 mb-3">
+          <div class="col-md-3"><label class="form-label small">Batch</label>
+            <input list="edit-batch-options" type="text" class="form-control form-control-sm" id="edit-batch">
+            <datalist id="edit-batch-options"></datalist></div>
+          <div class="col-md-3"><label class="form-label small">Submission cost ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="edit-sub-cost"></div>
+          <div class="col-md-3"><label class="form-label small">Estimated gem rate (%)</label>
+            <input type="number" step="0.1" class="form-control form-control-sm" id="edit-gem-rate"></div>
+          <div class="col-md-3"><label class="form-label small">EV @ submit ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="edit-ev"></div>
+          <div class="col-md-3"><label class="form-label small">PSA 9 @ submit ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="edit-psa9-submit"></div>
+          <div class="col-md-3"><label class="form-label small">PSA 10 @ submit ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="edit-psa10-submit"></div>
+        </div>
+
+        <h6 class="small fw-medium text-uppercase text-muted mb-2">Result</h6>
+        <div class="row g-2 mb-3">
+          <div class="col-md-3"><label class="form-label small">Result grade</label>
+            <select class="form-select form-select-sm" id="edit-result-grade">
+              <option value="">—</option>
+              <option value="10">PSA 10</option>
+              <option value="9.5">PSA 9.5</option>
+              <option value="9">PSA 9</option>
+              <option value="8.5">PSA 8.5</option>
+              <option value="8">PSA 8</option>
+              <option value="7">PSA 7</option>
+            </select></div>
+          <div class="col-md-3"><label class="form-label small">Result cert #</label>
+            <input type="text" class="form-control form-control-sm font-monospace" id="edit-result-cert"></div>
+          <div class="col-md-3"><label class="form-label small">PSA 9 @ return ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="edit-psa9-return"></div>
+          <div class="col-md-3"><label class="form-label small">PSA 10 @ return ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="edit-psa10-return"></div>
+        </div>
+
+        <h6 class="small fw-medium text-uppercase text-muted mb-2">CV / defects</h6>
+        <div class="row g-2 mb-3">
+          <div class="col-md-3"><label class="form-label small">Centering score (0..1)</label>
+            <input type="number" step="0.01" min="0" max="1" class="form-control form-control-sm" id="edit-cv-cent"></div>
+          <div class="col-md-3"><label class="form-label small">Corner score</label>
+            <input type="number" step="0.01" min="0" max="1" class="form-control form-control-sm" id="edit-cv-corner"></div>
+          <div class="col-md-3"><label class="form-label small">Edge score</label>
+            <input type="number" step="0.01" min="0" max="1" class="form-control form-control-sm" id="edit-cv-edge"></div>
+          <div class="col-md-3"><label class="form-label small">Surface score</label>
+            <input type="number" step="0.01" min="0" max="1" class="form-control form-control-sm" id="edit-cv-surface"></div>
+        </div>
+
+        <div class="mb-2"><label class="form-label small">Notes</label>
+          <textarea class="form-control form-control-sm" id="edit-notes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEdit()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Record result modal — structured -->
+<div class="modal fade" id="recordResultModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Record Result</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="rr-attempt-id">
+        <div class="row g-2 mb-2">
+          <div class="col-md-3"><label class="form-label small">Grade</label>
+            <select class="form-select form-select-sm" id="rr-grade">
+              <option value="10">PSA 10</option>
+              <option value="9.5">PSA 9.5</option>
+              <option value="9">PSA 9</option>
+              <option value="8.5">PSA 8.5</option>
+              <option value="8">PSA 8</option>
+              <option value="7">PSA 7</option>
+            </select></div>
+          <div class="col-md-3"><label class="form-label small">New cert #</label>
+            <input type="text" class="form-control form-control-sm font-monospace" id="rr-cert"></div>
+          <div class="col-md-3"><label class="form-label small">PSA 9 comp now ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="rr-psa9"></div>
+          <div class="col-md-3"><label class="form-label small">PSA 10 comp now ($)</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" id="rr-psa10"></div>
+        </div>
+        <div class="form-text small">Tip: drag the graded slab scans onto the lifecycle card after saving — they'll be stored with this attempt.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success" onclick="saveResult()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
 {{ end }}
 
 {{ define "page-scripts" }}
@@ -272,11 +437,16 @@
               </button>
             </div>
             <div class="d-flex gap-1 mb-2">${rawScanThumbs(lc)}</div>
-            <div class="mb-2">
-              <input type="file" class="form-control form-control-sm" multiple accept="image/*"
-                onchange='uploadRawScans("${id}", this.files)' title="Upload raw front/back scans">
-              <div class="form-text small">Raw scans (front + back). Max 32 MB each.</div>
-            </div>
+            <label class="dropzone d-block text-center mb-2" data-lifecycle-id="${id}"
+              ondragover="dzOver(event)" ondragleave="dzLeave(event)" ondrop="dzDrop(event)">
+              <input type="file" multiple accept="image/*" class="d-none"
+                onchange='uploadRawScans("${id}", this.files); this.value=""'>
+              <div class="small">
+                <i class="bi bi-cloud-arrow-up me-1"></i>
+                <strong>Drop or click</strong> to upload raw scans
+                <div class="text-muted">First file → front, second → back. Or paste image with Ctrl+V while card hovered.</div>
+              </div>
+            </label>
             <hr class="my-2">
             <div class="small fw-medium mb-1">
               Attempts <span class="badge bg-secondary">${lc.attempts ? lc.attempts.length : 0}</span>
@@ -294,7 +464,7 @@
   function renderAttempt(a) {
     const cost = a.purchase_price ? '$'+a.purchase_price.toFixed(2) : '—';
     const submitPrices = (a.submitted_at_psa9_price || a.submitted_at_psa10_price)
-      ? `<div class="small text-muted">@submit: 9=$${(a.submitted_at_psa9_price||0).toFixed(0)} / 10=$${(a.submitted_at_psa10_price||0).toFixed(0)}</div>` : '';
+      ? `<div class="small text-muted">@submit: 9=$${(a.submitted_at_psa9_price||0).toFixed(0)} / 10=$${(a.submitted_at_psa10_price||0).toFixed(0)}${a.submitted_at_estimated_gem_rate != null ? ' · gem '+(a.submitted_at_estimated_gem_rate*100).toFixed(0)+'%' : ''}${a.submitted_at_ev != null ? ' · EV $'+a.submitted_at_ev.toFixed(2) : ''}</div>` : '';
     const returnPrices = (a.result_at_psa9_price || a.result_at_psa10_price)
       ? `<div class="small text-muted">@return: 9=$${(a.result_at_psa9_price||0).toFixed(0)} / 10=$${(a.result_at_psa10_price||0).toFixed(0)}</div>` : '';
     const cv = [
@@ -315,9 +485,15 @@
         ${returnPrices}
         ${cvLine}
         ${a.result_grade ? `<div>Result: ${gradeBadge(a.result_grade)} ${a.result_cert_number ? '<span class="font-monospace">'+esc(a.result_cert_number)+'</span>' : ''}</div>` : ''}
-        <div class="d-flex gap-1 mt-1">
-          <button class="btn btn-xs btn-outline-secondary" onclick='editAttempt("${a.attempt_id}")'>Edit</button>
-          ${!a.result_grade ? `<button class="btn btn-xs btn-outline-success" onclick='recordResult("${a.attempt_id}")'>Record Result</button>` : ''}
+        <div class="d-flex gap-1 mt-1 flex-wrap">
+          <button class="btn btn-xs btn-outline-secondary" onclick='openEdit("${a.attempt_id}")'>Edit</button>
+          ${a.status === 'planned' ? `<button class="btn btn-xs btn-outline-primary" onclick='openSubmit("${a.attempt_id}")'>Submit</button>` : ''}
+          ${!a.result_grade && a.status !== 'planned' ? `<button class="btn btn-xs btn-outline-success" onclick='openResult("${a.attempt_id}")'>Result</button>` : ''}
+          <label class="btn btn-xs btn-outline-secondary mb-0" title="Upload graded slab scans">
+            <i class="bi bi-images"></i>
+            <input type="file" multiple accept="image/*" class="d-none"
+              onchange='uploadResultScans("${a.attempt_id}", this.files); this.value=""'>
+          </label>
         </div>
       </div>`;
   }
@@ -352,36 +528,264 @@
     await loadLifecycles();
   }
 
-  async function editAttempt(attemptId) {
-    const fields = prompt('Update fields as JSON (e.g. {"submission_id":"batch-2026-04","submitted_at_psa9_price":150,"submitted_at_psa10_price":900,"status":"submitted"})');
-    if (!fields) return;
-    let body;
-    try { body = JSON.parse(fields); } catch (_) { showToast('Invalid JSON', 'warning'); return; }
-    try {
-      await api('PUT', `/grading/attempts/${attemptId}`, body);
-      showToast('Updated', 'success');
-      await loadLifecycles();
-    } catch (e) { showToast('Update failed: '+e.message, 'danger'); }
+  // ── Submit modal ────────────────────────────────────────────────────────
+  const submitModal = new bootstrap.Modal(document.getElementById('submitAttemptModal'));
+
+  function findAttempt(attemptId) {
+    for (const lc of lifecycles) {
+      const a = (lc.attempts||[]).find(x => x.attempt_id === attemptId);
+      if (a) return { lc, a };
+    }
+    return null;
   }
 
-  async function recordResult(attemptId) {
-    const grade = prompt('Result grade? (10, 9.5, 9, 8.5, 8, ...)');
-    if (!grade) return;
-    const cert = prompt('New cert number?') || '';
-    const psa9 = parseFloat(prompt('PSA 9 comp price at return ($)?') || '0') || 0;
-    const psa10 = parseFloat(prompt('PSA 10 comp price at return ($)?') || '0') || 0;
+  function fillBatchOptions(datalistId) {
+    const dl = document.getElementById(datalistId);
+    const seen = new Set();
+    for (const lc of lifecycles) for (const a of (lc.attempts||[])) {
+      if (a.submission_id) seen.add(a.submission_id);
+    }
+    dl.innerHTML = [...seen].map(s => `<option value="${esc(s)}">`).join('');
+  }
+
+  function openSubmit(attemptId) {
+    const found = findAttempt(attemptId);
+    if (!found) return;
+    const { a } = found;
+    document.getElementById('sub-attempt-id').value = attemptId;
+    document.getElementById('sub-batch-id').value = a.submission_id || '';
+    document.getElementById('sub-cost').value = a.submitted_at_submission_cost ?? '';
+    document.getElementById('sub-gem-rate').value = a.submitted_at_estimated_gem_rate != null ? (a.submitted_at_estimated_gem_rate*100).toFixed(1) : '';
+    document.getElementById('sub-psa9').value = a.submitted_at_psa9_price ?? '';
+    document.getElementById('sub-psa10').value = a.submitted_at_psa10_price ?? '';
+    document.getElementById('sub-purchase').value = a.purchase_price ?? '';
+    fillBatchOptions('batch-options');
+    recalcSubmitEV();
+    submitModal.show();
+  }
+
+  function recalcSubmitEV() {
+    const purchase = parseFloat(document.getElementById('sub-purchase').value) || 0;
+    const subCost  = parseFloat(document.getElementById('sub-cost').value) || 0;
+    const psa9     = parseFloat(document.getElementById('sub-psa9').value) || 0;
+    const psa10    = parseFloat(document.getElementById('sub-psa10').value) || 0;
+    const gemRate  = Math.max(0, Math.min(1, (parseFloat(document.getElementById('sub-gem-rate').value)||0)/100));
+    const expected = gemRate*psa10 + (1-gemRate)*psa9;
+    const total    = purchase + subCost;
+    const ev       = expected - total;
+    let breakEven = '—';
+    if (psa10 > psa9) {
+      const br = (total - psa9) / (psa10 - psa9);
+      if (br < 0) breakEven = '0%';
+      else if (br > 1) breakEven = '>100%';
+      else breakEven = (br*100).toFixed(1) + '%';
+    }
+    document.getElementById('sub-expected').textContent = '$'+expected.toFixed(2);
+    document.getElementById('sub-total').textContent    = '$'+total.toFixed(2);
+    const evEl = document.getElementById('sub-ev');
+    evEl.textContent = (ev>=0?'+':'')+'$'+ev.toFixed(2);
+    evEl.className = 'fw-bold ' + (ev>=0 ? 'text-success' : 'text-danger');
+    document.getElementById('sub-break').textContent = breakEven;
+  }
+
+  async function saveSubmit() {
+    const attemptId = document.getElementById('sub-attempt-id').value;
+    const purchase = parseFloat(document.getElementById('sub-purchase').value) || 0;
+    const subCost  = parseFloat(document.getElementById('sub-cost').value) || 0;
+    const psa9     = parseFloat(document.getElementById('sub-psa9').value) || 0;
+    const psa10    = parseFloat(document.getElementById('sub-psa10').value) || 0;
+    const gemRate  = (parseFloat(document.getElementById('sub-gem-rate').value)||0)/100;
+    const expected = gemRate*psa10 + (1-gemRate)*psa9;
+    const ev       = expected - purchase - subCost;
+    const body = {
+      submission_id: document.getElementById('sub-batch-id').value.trim() || null,
+      submitted_at_submission_cost: subCost || null,
+      submitted_at_psa9_price: psa9 || null,
+      submitted_at_psa10_price: psa10 || null,
+      submitted_at_estimated_gem_rate: gemRate || null,
+      submitted_at_ev: isFinite(ev) ? ev : null,
+      purchase_price: purchase || null,
+      status: 'submitted',
+    };
     try {
-      await api('PUT', `/grading/attempts/${attemptId}`, {
-        result_grade: grade,
-        result_cert_number: cert,
-        result_at_psa9_price: psa9 || null,
-        result_at_psa10_price: psa10 || null,
-        status: 'result_received',
-      });
+      await api('PUT', `/grading/attempts/${attemptId}`, body);
+      submitModal.hide();
+      showToast('Submission recorded', 'success');
+      await loadLifecycles();
+    } catch (e) { showToast('Save failed: '+e.message, 'danger'); }
+  }
+
+  // ── Edit modal ──────────────────────────────────────────────────────────
+  const editModal = new bootstrap.Modal(document.getElementById('editAttemptModal'));
+
+  function openEdit(attemptId) {
+    const found = findAttempt(attemptId);
+    if (!found) return;
+    const { a } = found;
+    document.getElementById('edit-attempt-id').value = attemptId;
+    document.getElementById('edit-status').value     = a.status || 'planned';
+    document.getElementById('edit-price').value      = a.purchase_price ?? '';
+    document.getElementById('edit-date').value       = a.purchase_date  ?? '';
+    document.getElementById('edit-ebay').value       = a.ebay_url       ?? '';
+    document.getElementById('edit-batch').value      = a.submission_id  ?? '';
+    document.getElementById('edit-sub-cost').value   = a.submitted_at_submission_cost ?? '';
+    document.getElementById('edit-gem-rate').value   = a.submitted_at_estimated_gem_rate != null ? (a.submitted_at_estimated_gem_rate*100).toFixed(1) : '';
+    document.getElementById('edit-ev').value         = a.submitted_at_ev ?? '';
+    document.getElementById('edit-psa9-submit').value = a.submitted_at_psa9_price ?? '';
+    document.getElementById('edit-psa10-submit').value = a.submitted_at_psa10_price ?? '';
+    document.getElementById('edit-result-grade').value = a.result_grade ?? '';
+    document.getElementById('edit-result-cert').value = a.result_cert_number ?? '';
+    document.getElementById('edit-psa9-return').value = a.result_at_psa9_price ?? '';
+    document.getElementById('edit-psa10-return').value = a.result_at_psa10_price ?? '';
+    document.getElementById('edit-cv-cent').value    = a.pre_submit_centering_score ?? '';
+    document.getElementById('edit-cv-corner').value  = a.pre_submit_corner_score ?? '';
+    document.getElementById('edit-cv-edge').value    = a.pre_submit_edge_score ?? '';
+    document.getElementById('edit-cv-surface').value = a.pre_submit_surface_score ?? '';
+    document.getElementById('edit-notes').value      = a.notes ?? '';
+    fillBatchOptions('edit-batch-options');
+    editModal.show();
+  }
+
+  // numOrNull keeps optional numeric inputs out of the PUT when blank — sending 0
+  // would clobber an existing value.
+  function numOrNull(id) {
+    const v = document.getElementById(id).value;
+    if (v === '' || v == null) return null;
+    const n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  }
+  function strOrNull(id) {
+    const v = document.getElementById(id).value.trim();
+    return v === '' ? null : v;
+  }
+
+  async function saveEdit() {
+    const attemptId = document.getElementById('edit-attempt-id').value;
+    const gemPct = numOrNull('edit-gem-rate');
+    const body = {
+      status: document.getElementById('edit-status').value,
+      purchase_price: numOrNull('edit-price'),
+      purchase_date:  strOrNull('edit-date'),
+      ebay_url:       strOrNull('edit-ebay'),
+      submission_id:  strOrNull('edit-batch'),
+      submitted_at_submission_cost:    numOrNull('edit-sub-cost'),
+      submitted_at_estimated_gem_rate: gemPct != null ? gemPct/100 : null,
+      submitted_at_ev:                 numOrNull('edit-ev'),
+      submitted_at_psa9_price:         numOrNull('edit-psa9-submit'),
+      submitted_at_psa10_price:        numOrNull('edit-psa10-submit'),
+      result_grade:                    strOrNull('edit-result-grade'),
+      result_cert_number:              strOrNull('edit-result-cert'),
+      result_at_psa9_price:            numOrNull('edit-psa9-return'),
+      result_at_psa10_price:           numOrNull('edit-psa10-return'),
+      pre_submit_centering_score:      numOrNull('edit-cv-cent'),
+      pre_submit_corner_score:         numOrNull('edit-cv-corner'),
+      pre_submit_edge_score:           numOrNull('edit-cv-edge'),
+      pre_submit_surface_score:        numOrNull('edit-cv-surface'),
+      notes:                           strOrNull('edit-notes'),
+    };
+    try {
+      await api('PUT', `/grading/attempts/${attemptId}`, body);
+      editModal.hide();
+      showToast('Saved', 'success');
+      await loadLifecycles();
+    } catch (e) { showToast('Save failed: '+e.message, 'danger'); }
+  }
+
+  // ── Result modal ────────────────────────────────────────────────────────
+  const resultModal = new bootstrap.Modal(document.getElementById('recordResultModal'));
+
+  function openResult(attemptId) {
+    const found = findAttempt(attemptId);
+    if (!found) return;
+    const { a } = found;
+    document.getElementById('rr-attempt-id').value = attemptId;
+    document.getElementById('rr-grade').value = '10';
+    document.getElementById('rr-cert').value = '';
+    document.getElementById('rr-psa9').value = a.submitted_at_psa9_price ?? '';
+    document.getElementById('rr-psa10').value = a.submitted_at_psa10_price ?? '';
+    resultModal.show();
+  }
+
+  async function saveResult() {
+    const attemptId = document.getElementById('rr-attempt-id').value;
+    const body = {
+      result_grade:         document.getElementById('rr-grade').value,
+      result_cert_number:   document.getElementById('rr-cert').value.trim() || null,
+      result_at_psa9_price: numOrNull('rr-psa9'),
+      result_at_psa10_price: numOrNull('rr-psa10'),
+      status: 'result_received',
+    };
+    try {
+      await api('PUT', `/grading/attempts/${attemptId}`, body);
+      resultModal.hide();
       showToast('Result recorded', 'success');
       await loadLifecycles();
     } catch (e) { showToast('Save failed: '+e.message, 'danger'); }
   }
+
+  // ── Result-scan upload ──────────────────────────────────────────────────
+  async function uploadResultScans(attemptId, files) {
+    if (!files || files.length === 0) return;
+    const fd = new FormData();
+    if (files[0]) fd.append('front', files[0]);
+    if (files[1]) fd.append('back', files[1]);
+    const user = firebase.auth().currentUser;
+    const token = await user.getIdToken();
+    const res = await fetch(`${backendUrl}/grading/attempts/${attemptId}/result-scans`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: fd,
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch (_) {}
+      showToast('Upload failed: '+msg, 'danger');
+      return;
+    }
+    showToast('Result scans uploaded', 'success');
+    await loadLifecycles();
+  }
+
+  // ── Drag-and-drop on lifecycle dropzones ────────────────────────────────
+  function dzOver(e)  { e.preventDefault(); e.currentTarget.classList.add('dropzone-active'); }
+  function dzLeave(e) { e.currentTarget.classList.remove('dropzone-active'); }
+  function dzDrop(e)  {
+    e.preventDefault();
+    e.currentTarget.classList.remove('dropzone-active');
+    const id = e.currentTarget.dataset.lifecycleId;
+    const files = [...(e.dataTransfer.files || [])].filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) {
+      uploadRawScans(id, files);
+      return;
+    }
+    // Cross-origin drag (e.g., dragging an image directly from psacard.com)
+    // leaves us with a URL but no bytes -- the browser blocks the fetch from
+    // here. Best workaround: open the image in a new tab, save it, and drop
+    // the file. Show a hint instead of failing silently.
+    const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+    if (url) {
+      showToast('Cross-origin drag isn\'t supported by browsers — right-click → Save Image, then drop the file', 'warning');
+    }
+  }
+
+  // Paste-from-clipboard: when a card is hovered, Ctrl+V uploads the pasted
+  // image. We track the most-recently-hovered dropzone instead of relying on
+  // focus, since LABELs aren't focusable.
+  let lastHoveredDz = null;
+  document.addEventListener('mouseover', e => {
+    const dz = e.target.closest && e.target.closest('.dropzone');
+    if (dz) lastHoveredDz = dz;
+  });
+  document.addEventListener('paste', async e => {
+    if (!lastHoveredDz) return;
+    const items = [...(e.clipboardData?.items || [])].filter(it => it.type.startsWith('image/'));
+    if (items.length === 0) return;
+    const files = items.map(it => it.getAsFile()).filter(Boolean);
+    if (files.length > 0) {
+      e.preventDefault();
+      uploadRawScans(lastHoveredDz.dataset.lifecycleId, files);
+    }
+  });
 
   async function startCrack(lifecycleId, lastGrade) {
     if (!confirm(`Mark current attempt as cracked and start a new one${lastGrade ? ' (was PSA '+lastGrade+')' : ''}?`)) return;
@@ -419,5 +823,15 @@
 </script>
 <style>
   .btn-xs { padding: 0.1rem 0.4rem; font-size: 0.7rem; }
+  .dropzone {
+    border: 2px dashed #ced4da;
+    border-radius: 6px;
+    padding: 12px 8px;
+    cursor: pointer;
+    background: #fafbfc;
+    transition: all 0.15s;
+  }
+  .dropzone:hover { border-color: #0d6efd; background: #f0f7ff; }
+  .dropzone-active { border-color: #0d6efd; background: #e7f1ff; }
 </style>
 {{ end }}
